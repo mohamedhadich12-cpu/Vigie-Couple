@@ -10,10 +10,20 @@ import numpy as np
 from PyQt5 import QtWidgets
 
 from ..coeur.detection import Analyse, horodatage, statut_fenetre
-from ..coeur.lecture_mf4 import DetailEssai
+from ..coeur.lecture_mf4 import DetailEssai, lire_voie, voies_disponibles
 from . import theme
 
-ONGLETS = ("Couple", "Résidu", "Vitesse")
+ONGLETS = ("Couple", "Résidu", "Vitesse", "Tracé libre")
+
+# Opérations du tracé libre : libellé affiché → (calcul, gabarit de titre).
+# Le titre passe par un gabarit et non par un remplacement de « A » et « B » :
+# un nom de voie contenant ces lettres corromprait le libellé.
+OPERATIONS = {
+    "Voie A seule": (lambda a, b: a, "{a}"),
+    "A + B": (lambda a, b: a + b, "{a} + {b}"),
+    "A − B": (lambda a, b: a - b, "{a} − {b}"),
+    "Moyenne (A + B) / 2": (lambda a, b: 0.5 * (a + b), "({a} + {b}) / 2"),
+}
 
 
 def zones_par_statut(detail: DetailEssai, analyse: Analyse | None) -> list[tuple]:
@@ -52,6 +62,7 @@ class FenetreEssai(QtWidgets.QDialog):
         self.detail = detail
         self.analyse = analyse
         self._mode = mode
+        self._cache: dict[str, tuple] = {}   # voies du tracé libre déjà lues
         indicateurs = detail.indicateurs
         self.setWindowTitle(f"Essai {indicateurs.nom}")
         self.resize(960, 640)
@@ -73,15 +84,50 @@ class FenetreEssai(QtWidgets.QDialog):
         disposition.addWidget(self.onglets)
         disposition.addWidget(self.graphique, 1)
 
+        self.commandes = self._construire_commandes()
+        disposition.addWidget(self.commandes)
+
         self.legende_zones = theme.etiquette("", "secondaire")
         self.legende_zones.setWordWrap(True)
         disposition.addWidget(self.legende_zones)
 
         boutons = QtWidgets.QDialogButtonBox()
+        vue = boutons.addButton("Vue d'ensemble",
+                                QtWidgets.QDialogButtonBox.ResetRole)
+        vue.setToolTip("Annule le zoom et réajuste les échelles.")
+        vue.clicked.connect(lambda: self.graphique.getPlotItem().autoRange())
         fermer = boutons.addButton("Fermer", QtWidgets.QDialogButtonBox.RejectRole)
         fermer.clicked.connect(self.reject)
         disposition.addWidget(boutons)
         self._tracer()
+
+    def _construire_commandes(self) -> QtWidgets.QWidget:
+        """Choix des voies du tracé libre ; masqué sur les autres onglets."""
+        boite = QtWidgets.QWidget()
+        ligne = theme.marges(QtWidgets.QHBoxLayout(boite), 0, theme.ESPACE)
+        try:
+            voies = voies_disponibles(self.detail.indicateurs.chemin)
+        except Exception:
+            voies = []
+        self.voie_a = QtWidgets.QComboBox()
+        self.voie_b = QtWidgets.QComboBox()
+        self.operation = QtWidgets.QComboBox()
+        self.voie_a.addItems(voies)
+        self.voie_b.addItems(voies)
+        self.operation.addItems(OPERATIONS)
+        if len(voies) > 1:
+            self.voie_b.setCurrentIndex(1)
+        for widget in (self.voie_a, self.operation, self.voie_b):
+            widget.setMinimumWidth(150)
+            widget.currentIndexChanged.connect(self._tracer)
+        ligne.addWidget(theme.etiquette("Voie A", "secondaire"))
+        ligne.addWidget(self.voie_a, 1)
+        ligne.addWidget(theme.etiquette("Opération", "secondaire"))
+        ligne.addWidget(self.operation)
+        ligne.addWidget(theme.etiquette("Voie B", "secondaire"))
+        ligne.addWidget(self.voie_b, 1)
+        boite.hide()
+        return boite
 
     def _resume(self) -> str:
         """Une ligne : ce qu'il faut savoir de l'essai avant de lire le tracé."""
@@ -129,7 +175,7 @@ class FenetreEssai(QtWidgets.QDialog):
                                      c["texte_secondaire"])
             self.graphique.courbe(centres, np.array(detail.residus_fenetres),
                                   c["serie1"])
-        else:
+        elif onglet == "Vitesse":
             self.graphique.reinitialiser("Vitesse véhicule", "km/h", "Temps (s)",
                                          "t = {:.1f} s")
             vitesse = detail.voies.get("vitesse_vehicule")
@@ -139,7 +185,49 @@ class FenetreEssai(QtWidgets.QDialog):
             else:
                 self.graphique.courbe(t, vitesse, c["serie1"], unite="km/h",
                                       marqueurs=False)
+        else:
+            self._tracer_libre(t, c)
+
+        self.commandes.setVisible(onglet == "Tracé libre")
         self._surligner()
+
+    def _voie(self, nom: str):
+        """Lit une voie à la demande et la garde en mémoire pour cette fenêtre."""
+        if nom not in self._cache:
+            self._cache[nom] = lire_voie(self.detail.indicateurs.chemin, nom,
+                                         self.detail.t)
+        return self._cache[nom]
+
+    def _tracer_libre(self, t, c):
+        """Trace n'importe quelle voie du fichier, seule ou combinée à une autre."""
+        nom_a = self.voie_a.currentText()
+        nom_b = self.voie_b.currentText()
+        libelle = self.operation.currentText()
+        seule = libelle == "Voie A seule"
+        if not nom_a:
+            self.graphique.reinitialiser("Aucune voie disponible", "", "Temps (s)",
+                                         "t = {:.1f} s")
+            return
+
+        lu_a = self._voie(nom_a)
+        lu_b = None if seule else self._voie(nom_b)
+        if lu_a is None or (not seule and lu_b is None):
+            manquante = nom_a if lu_a is None else nom_b
+            self.graphique.reinitialiser(f"Voie « {manquante} » non traçable",
+                                         "", "Temps (s)", "t = {:.1f} s")
+            return
+
+        valeurs_a, unite = lu_a
+        if seule:
+            valeurs, titre = valeurs_a, nom_a
+        else:
+            calcul, gabarit = OPERATIONS[libelle]
+            valeurs = calcul(valeurs_a, lu_b[0])
+            titre = gabarit.format(a=nom_a, b=nom_b)
+            if lu_b[1] and lu_b[1] != unite:   # unités hétérogènes : on le dit
+                unite = f"{unite} / {lu_b[1]}"
+        self.graphique.reinitialiser(titre, unite, "Temps (s)", "t = {:.1f} s")
+        self.graphique.courbe(t, valeurs, c["serie1"], unite=unite, marqueurs=False)
 
     def _surligner(self):
         """Surligne les fenêtres retenues, en couleur de statut si elles dérivent."""

@@ -280,3 +280,30 @@ def _pente(niveau, residu) -> float | None:
 def fichiers_mf4(dossier: str | Path) -> list[Path]:
     """Tous les .mf4 d'un dossier, triés par nom (insensible à la casse Windows)."""
     return sorted(Path(dossier).glob("*.mf4"), key=lambda p: p.name.lower())
+
+
+# --- Tracé libre : n'importe quelle voie du fichier ---
+def voies_disponibles(chemin: str | Path) -> list[str]:
+    """Noms de toutes les voies du fichier, mappées ou non."""
+    with MDF(Path(chemin)) as mdf:
+        return sorted(mdf.channels_db)
+
+
+def lire_voie(chemin: str | Path, nom: str,
+              t: np.ndarray) -> tuple[np.ndarray, str] | None:
+    """Lit une voie quelconque et la ramène sur la base de temps de l'essai.
+
+    Rend None si la voie est absente ou non numérique : toutes les voies d'une
+    acquisition ne sont pas traçables (chaînes de caractères, tableaux).
+    """
+    with MDF(Path(chemin)) as mdf:
+        try:
+            signal = mdf.get(nom)
+        except Exception:
+            return None
+        echantillons = np.asarray(signal.samples)
+        unite = str(signal.unit or "")
+    if echantillons.ndim != 1 or echantillons.dtype.kind not in "fiub":
+        return None
+    return np.interp(t, np.asarray(signal.timestamps, dtype=float),
+                     echantillons.astype(float)), unite

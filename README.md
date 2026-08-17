@@ -59,13 +59,25 @@ couple maximal, biais et écart-type du résidu, et un verdict.
 
 **Visualiser un essai** — double-clic sur une ligne du tableau (ou bouton
 *Visualiser l'essai…*) : une fenêtre montre les signaux de l'essai, un seul
-graphique à la fois (Couple, Résidu, Vitesse). Les plages retenues pour le
-calcul sont surlignées en gris, et **les zones où le résidu sort de la bande
-d'accord en orange**, au-delà de l'écart admissible en rouge — toujours avec un
-libellé texte, jamais la couleur seule. L'en-tête donne la part exploitable de
-l'essai et la répartition des phases : c'est le premier endroit où regarder
-quand un essai ne produit aucun indicateur. La molette zoome, utile pour
-séparer deux voies quasi confondues.
+graphique à la fois, en quatre onglets — Couple, Résidu, Vitesse, **Tracé
+libre**. Les plages retenues pour le calcul sont surlignées en gris, et **les
+zones où le résidu sort de la bande d'accord en orange**, au-delà de l'écart
+admissible en rouge — toujours avec un libellé texte, jamais la couleur seule.
+L'en-tête donne la part exploitable de l'essai et la répartition des phases :
+c'est le premier endroit où regarder quand un essai ne produit aucun
+indicateur.
+
+*Tracé libre* : deux listes déroulantes donnent accès à **toutes les voies du
+fichier**, mappées ou non, et une troisième choisit l'opération — voie seule,
+`A + B`, `A − B`, ou moyenne des deux. Utile pour reconstituer le couple
+d'essieu (`CRoue_Trans_G + CRoue_Trans_D`), vérifier une voie non mappée, ou
+comparer deux grandeurs. Les voies sont lues à la demande et gardées en
+mémoire ; celles qui ne sont pas numériques sont signalées plutôt qu'ignorées.
+
+Molette pour zoomer, glisser pour déplacer, bouton *Vue d'ensemble* pour
+revenir aux échelles complètes — utile pour séparer deux voies quasi
+confondues, l'écart gauche/droite ne faisant que quelques N·m sur une étendue
+de 1 500.
 
 Traitement par essai : lecture `asammdf` → rééchantillonnage sur une base de
 temps commune (20 Hz) → segmentation en phases (arrêt, traction, freinage
@@ -240,7 +252,7 @@ tests/test_detection.py
 donnees_demo/generateur.py
 ```
 
-Onze modules d'application, environ 2 400 lignes dont l'essentiel de code
+Onze modules d'application, environ 2 460 lignes dont l'essentiel de code
 effectif : le reste est constitué des commentaires et docstrings en français.
 Le périmètre a dépassé les 1 500 lignes visées au départ, par ajouts demandés
 après la première livraison (mappage des voies, visualisation d'essai).
