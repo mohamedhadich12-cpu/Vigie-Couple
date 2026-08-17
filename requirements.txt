@@ -7,6 +7,6 @@ numpy==2.4.6
 scipy==1.17.1
 reportlab==5.0.0
 pillow==12.3.0        # requis par reportlab pour insérer le graphique PNG
-PyYAML==6.0.1
+PyYAML==6.0.3          # 6.0.1 n'a pas de paquet précompilé pour Python 3.13/3.14
 cffi==2.1.1           # dépendance native d'asammdf pour la lecture MF4
 pytest==8.3.4         # tests du cœur de calcul
