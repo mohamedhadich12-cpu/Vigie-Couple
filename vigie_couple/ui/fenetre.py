@@ -89,6 +89,7 @@ class Fenetre(QtWidgets.QMainWindow):
         application = QtWidgets.QApplication.instance()
         application.setStyleSheet(theme.feuille_de_style(mode))
         self.bouton_theme.setText("Mode clair" if mode == "sombre" else "Mode sombre")
+        self.campagne.appliquer_theme(mode)
         self.surveillance.appliquer_theme(mode)
         self.fiche.appliquer_theme(mode)
 

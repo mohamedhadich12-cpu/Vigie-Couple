@@ -123,6 +123,16 @@ class Analyse:
     verdict: Verdict
     discrimination: Discrimination
     reglages: Reglages
+    sigma_fenetre: float = 0.0   # dispersion des fenêtres à l'intérieur d'un essai
+
+    @property
+    def echelle_fenetre(self) -> float:
+        """Écart-type attendu d'une fenêtre isolée face à la référence μ₀.
+
+        Deux sources de dispersion s'additionnent : celle d'un essai à l'autre
+        (σ₀) et celle des fenêtres à l'intérieur d'un essai.
+        """
+        return float(np.hypot(self.sigma0, self.sigma_fenetre))
 
 
 # --- Estimation robuste de la référence ---
@@ -325,8 +335,11 @@ def analyser(essais: list[IndicateursEssai],
     discrimination = (discriminer(essais, reglages, mu0, sigma0, indice)
                       if verdict.statut in ("vigilance", "non_conforme")
                       else Discrimination("aucune", ""))
+    # Dispersion typique des fenêtres, relevée sur la période de référence.
+    sigma_fenetre = _mediane([e.resume(reglages.source).ecart_type
+                              for e in essais[:reglages.n_reference]]) or 0.0
     return Analyse(essais, reglages.source, x, mu0, sigma0, cusum, ewma,
-                   verdict, discrimination, reglages)
+                   verdict, discrimination, reglages, sigma_fenetre)
 
 
 def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
@@ -359,6 +372,23 @@ def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
 
     return Verdict("conforme", "Conforme", "✔",
                    f"Aucune dérive détectée sur les {n} derniers essais.")
+
+
+def statut_fenetre(residu: float, mu0: float, sigma: float,
+                   reglages: Reglages) -> str:
+    """Verdict d'une seule fenêtre de mesure, à l'intérieur d'un essai.
+
+    Sert à surligner les zones de dérive dans la visualisation d'un essai.
+    « sigma » est l'échelle propre à une fenêtre isolée — voir
+    Analyse.echelle_fenetre — et non σ₀, qui mesure la dispersion d'un essai
+    à l'autre : une fenêtre comparée à σ₀ sortirait de la bande une fois sur
+    deux sur un essai parfaitement sain.
+    """
+    if abs(residu) > reglages.ecart_max_admissible:
+        return "non_conforme"
+    if abs(residu - mu0) > 1.96 * max(sigma, 1e-9):
+        return "vigilance"
+    return "conforme"
 
 
 def date_courte(date: str) -> str:

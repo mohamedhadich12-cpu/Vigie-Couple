@@ -57,6 +57,16 @@ entier. La lecture se fait en tâche de fond avec barre de progression :
 l'interface ne se fige jamais. Le tableau donne, par essai, date, nom, durée,
 couple maximal, biais et écart-type du résidu, et un verdict.
 
+**Visualiser un essai** — double-clic sur une ligne du tableau (ou bouton
+*Visualiser l'essai…*) : une fenêtre montre les signaux de l'essai, un seul
+graphique à la fois (Couple, Résidu, Vitesse). Les plages retenues pour le
+calcul sont surlignées en gris, et **les zones où le résidu sort de la bande
+d'accord en orange**, au-delà de l'écart admissible en rouge — toujours avec un
+libellé texte, jamais la couleur seule. L'en-tête donne la part exploitable de
+l'essai et la répartition des phases : c'est le premier endroit où regarder
+quand un essai ne produit aucun indicateur. La molette zoome, utile pour
+séparer deux voies quasi confondues.
+
 Traitement par essai : lecture `asammdf` → rééchantillonnage sur une base de
 temps commune (20 Hz) → segmentation en phases (arrêt, traction, freinage
 récupératif, transitoire) → sélection des fenêtres exploitables (vitesse
@@ -105,6 +115,13 @@ où elle compte.
 Longueurs moyennes de série sans défaut mesurées par les tests (μ₀ et σ₀
 connus) : **CUSUM ≈ 450 essais**, **EWMA ≈ 315 essais**. Les deux cartes
 détectent un décalage de 1 σ en une dizaine d'essais.
+
+**Échelle d'une fenêtre isolée.** Le surlignage ne compare pas une fenêtre à
+σ₀ : σ₀ mesure la dispersion d'un essai à l'autre, alors qu'une fenêtre porte
+en plus la dispersion interne à l'essai. L'échelle correcte est
+√(σ₀² + σ_fenêtre²), soit un intervalle de prédiction pour une fenêtre. Sur le
+jeu de démonstration, σ₀ = 0,82 et σ_fenêtre = 0,93 N·m : comparer à σ₀ seul
+signalerait la moitié des fenêtres d'un essai parfaitement sain.
 
 ## Discrimination
 
@@ -164,10 +181,11 @@ Ce qu'on observe : verdict **Vigilance**, dérive détectée à l'essai 18,
 python -m pytest tests -q
 ```
 
-14 tests sur `detection.py` uniquement (aucun test d'interface) : délai de
+18 tests sur `detection.py` uniquement (aucun test d'interface) : délai de
 détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
 comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
-de σ₀ à une valeur aberrante, et les cinq branches de la discrimination.
+de σ₀ à une valeur aberrante, les cinq branches de la discrimination, et le
+verdict d'une fenêtre isolée avec son échelle propre.
 
 ---
 
@@ -212,6 +230,7 @@ vigie_couple/
     ecran_surveillance.py  écran 2
     ecran_fiche.py     écran 3 et export PDF
     dialogue_mappage.py  fenêtre de mappage des voies (config.yaml)
+    fenetre_essai.py   visualisation d'un essai et zones de dérive
     theme.py           palette, styles, clair/sombre, widget de graphique
   coeur/
     lecture_mf4.py     lecture, rééchantillonnage, segmentation, résidus
@@ -221,6 +240,8 @@ tests/test_detection.py
 donnees_demo/generateur.py
 ```
 
-Dix modules d'application, environ 2 100 lignes dont l'essentiel de code
+Onze modules d'application, environ 2 400 lignes dont l'essentiel de code
 effectif : le reste est constitué des commentaires et docstrings en français.
+Le périmètre a dépassé les 1 500 lignes visées au départ, par ajouts demandés
+après la première livraison (mappage des voies, visualisation d'essai).
 `detection.py` n'importe rien de Qt, ce qui le rend testable seul.

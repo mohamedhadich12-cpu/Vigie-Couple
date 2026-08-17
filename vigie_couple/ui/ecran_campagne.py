@@ -11,7 +11,7 @@ from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 
 from ..coeur.detection import Analyse, horodatage
-from ..coeur.lecture_mf4 import fichiers_mf4, lire_essai
+from ..coeur.lecture_mf4 import fichiers_mf4, lire_detail, lire_essai
 from . import theme
 
 COLONNES = ("Date", "Essai", "Durée", "Couple max", "Biais du résidu",
@@ -53,6 +53,8 @@ class EcranCampagne(QtWidgets.QWidget):
         self.config = config
         self.chemin_config = chemin_config
         self.essais: list = []
+        self.analyse: Analyse | None = None   # référence μ₀/σ₀ de la campagne
+        self._mode = "clair"
         self._chargeur: Chargeur | None = None
         self._dossier = str(DOSSIER_DEMO.parent)
 
@@ -65,14 +67,17 @@ class EcranCampagne(QtWidgets.QWidget):
         self.bouton_fichiers = QtWidgets.QPushButton("Ajouter des fichiers…")
         self.bouton_dossier = QtWidgets.QPushButton("Ajouter un dossier…")
         self.bouton_demo = QtWidgets.QPushButton("Jeu de démonstration")
+        self.bouton_voir = QtWidgets.QPushButton("Visualiser l'essai…")
+        self.bouton_voir.setEnabled(False)
         self.bouton_mappage.clicked.connect(self._configurer_voies)
         self.bouton_fichiers.clicked.connect(self._choisir_fichiers)
         self.bouton_dossier.clicked.connect(self._choisir_dossier)
         self.bouton_demo.clicked.connect(self._charger_demo)
+        self.bouton_voir.clicked.connect(self._visualiser)
         # « Configurer les voies… » en premier : c'est la première question à
         # se poser avant de charger des acquisitions qui ne sont pas la démo.
         for bouton in (self.bouton_mappage, self.bouton_fichiers,
-                       self.bouton_dossier, self.bouton_demo):
+                       self.bouton_dossier, self.bouton_demo, self.bouton_voir):
             boutons.addWidget(bouton)
         boutons.addStretch(1)
         disposition.addLayout(boutons)
@@ -93,6 +98,9 @@ class EcranCampagne(QtWidgets.QWidget):
         entete = self.tableau.horizontalHeader()
         entete.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         entete.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        self.tableau.doubleClicked.connect(self._visualiser)
+        self.tableau.itemSelectionChanged.connect(
+            lambda: self.bouton_voir.setEnabled(bool(self.tableau.selectedItems())))
         disposition.addWidget(self.tableau, 1)
 
     # --- sélection des fichiers ---
@@ -128,12 +136,33 @@ class EcranCampagne(QtWidgets.QWidget):
         if DialogueMappage(self.config, self.chemin_config, self).exec_():
             self.etat.setText("Mappage des voies enregistré.")
 
+    def _visualiser(self):
+        """Ouvre la visualisation de l'essai sélectionné, relu depuis son fichier."""
+        from .fenetre_essai import FenetreEssai
+        ligne = self.tableau.currentRow()
+        if not 0 <= ligne < len(self.essais):
+            return
+        essai = self.essais[ligne]
+        self.etat.setText(f"Lecture de {essai.nom} pour visualisation…")
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            detail = lire_detail(essai.chemin, self.config)
+        except Exception as erreur:
+            self.etat.setText(f"Essai illisible — {essai.nom} : {erreur}")
+            return
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self.etat.setText(f"{len(self.essais)} essais chargés.")
+        FenetreEssai(detail, self.analyse, self._mode, self).exec_()
+
     # --- chargement ---
     def _lancer(self, chemins: list[Path]):
         if self._chargeur is not None and self._chargeur.isRunning():
             return
         self.essais.clear()
+        self.analyse = None
         self.tableau.setRowCount(0)
+        self.bouton_voir.setEnabled(False)
         self._activer(False)
         self.progression.setRange(0, len(chemins))
         self.progression.setValue(0)
@@ -179,12 +208,18 @@ class EcranCampagne(QtWidgets.QWidget):
     def _terminer(self):
         self.progression.hide()
         self._activer(True)
-        self.etat.setText(f"{len(self.essais)} essais chargés.")
+        self.etat.setText(f"{len(self.essais)} essais chargés — double-cliquez "
+                          "sur une ligne pour visualiser l'essai.")
         self.essais_charges.emit(list(self.essais))
+
+    def appliquer_theme(self, mode: str):
+        """Mémorise le thème : la visualisation d'essai s'ouvre dans le même."""
+        self._mode = mode
 
     # --- verdicts par essai ---
     def colorer(self, analyse: Analyse):
         """Reporte le verdict de chaque essai dans la dernière colonne."""
+        self.analyse = analyse
         reglages = analyse.reglages
         for ligne, essai in enumerate(analyse.essais):
             if ligne >= self.tableau.rowCount():

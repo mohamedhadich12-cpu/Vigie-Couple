@@ -6,6 +6,7 @@ Le mappage des voies vient de config.yaml : aucun nom de signal en dur ici.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -158,8 +159,42 @@ def _zero(voies: dict, phases: np.ndarray, fin: bool) -> float | None:
 
 
 # --- Indicateurs d'un essai ---
-def lire_essai(chemin: str | Path, config: dict) -> IndicateursEssai:
-    """Lit un fichier MF4 et rend les indicateurs de l'essai, sources comprises."""
+@dataclass
+class DetailEssai:
+    """Un essai avec ses données brutes rééchantillonnées, pour la visualisation.
+
+    lire_essai() ne garde que les indicateurs ; lire_detail() conserve en plus
+    les signaux, les phases et le découpage en fenêtres, ce qui permet de voir
+    où le résidu dérive et pourquoi telle portion d'essai a été écartée.
+    """
+
+    indicateurs: IndicateursEssai
+    t: np.ndarray
+    voies: dict
+    phases: np.ndarray
+    masque: np.ndarray
+    fenetres: list = field(default_factory=list)
+    residus_fenetres: list = field(default_factory=list)
+
+    @property
+    def residu(self) -> np.ndarray:
+        """Résidu instantané gauche − droite, sur toute la durée de l'essai."""
+        return self.voies["couple_gauche"] - self.voies["couple_droit"]
+
+    def part_exploitable(self) -> float:
+        """Proportion de l'essai retenue pour le calcul du résidu."""
+        return float(self.masque.mean()) if self.masque.size else 0.0
+
+    def repartition_phases(self) -> dict[str, float]:
+        """Part de chaque phase dans l'essai, pour expliquer les exclusions."""
+        if not self.phases.size:
+            return {}
+        return {nom: float(np.mean(self.phases == rang))
+                for rang, nom in enumerate(PHASES)}
+
+
+def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
+    """Lit un MF4 et rend indicateurs et données brutes rééchantillonnées."""
     chemin = Path(chemin)
     param = config.get("traitement", {}) or {}
     frequence = float(param.get("frequence_hz", 20.0))
@@ -196,7 +231,7 @@ def lire_essai(chemin: str | Path, config: dict) -> IndicateursEssai:
     couple_max = float(np.max(np.abs(0.5 * (gauche + droit)))) if t.size else 0.0
     vitesse = voies.get("vitesse_vehicule")
     distance = float(np.trapezoid(vitesse / 3.6, t) / 1000.0) if vitesse is not None else 0.0
-    return IndicateursEssai(
+    indicateurs = IndicateursEssai(
         nom=chemin.stem,
         date=debut.strftime("%Y-%m-%d %H:%M") if debut else "",
         duree_s=float(t[-1] - t[0]) if t.size else 0.0,
@@ -211,6 +246,12 @@ def lire_essai(chemin: str | Path, config: dict) -> IndicateursEssai:
         pente_couple=_pente(niveau, r_voie),
         chemin=str(chemin),
     )
+    return DetailEssai(indicateurs, t, voies, phases, masque, fenetres, r_voie)
+
+
+def lire_essai(chemin: str | Path, config: dict) -> IndicateursEssai:
+    """Lit un fichier MF4 et rend les indicateurs de l'essai, sources comprises."""
+    return lire_detail(chemin, config).indicateurs
 
 
 def _resume(valeurs) -> ResumeResidu:

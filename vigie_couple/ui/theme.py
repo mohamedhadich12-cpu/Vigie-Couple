@@ -7,6 +7,7 @@ réservées au verdict et ne servent jamais à une série de données.
 """
 from __future__ import annotations
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -153,6 +154,7 @@ class Graphique(pg.PlotWidget):
         self._mode = mode
         self._series: list[tuple[str, object, object, str]] = []
         self._legende = None
+        self.format_x = "Essai {:.0f}"
         self.setMenuEnabled(False)
         self.setMouseEnabled(x=False, y=False)
         self.showGrid(x=True, y=True, alpha=0.18)
@@ -183,9 +185,11 @@ class Graphique(pg.PlotWidget):
         self._bulle.fill = pg.mkBrush(c["alternance"])
 
     # --- tracé ---
-    def reinitialiser(self, titre: str, y_libelle: str, x_libelle: str = "Essai"):
+    def reinitialiser(self, titre: str, y_libelle: str, x_libelle: str = "Essai",
+                      format_x: str = "Essai {:.0f}"):
         self.clear()
         self._series.clear()
+        self.format_x = format_x        # en-tête de l'info-bulle de survol
         if self._legende is not None:
             self._legende.scene().removeItem(self._legende)
             self._legende = None
@@ -229,6 +233,17 @@ class Graphique(pg.PlotWidget):
         self.addItem(pg.InfiniteLine(pos=x, angle=90, movable=False, pen=stylo),
                      ignoreBounds=True)
 
+    def zone(self, x0: float, x1: float, couleur: str, opacite: int = 45):
+        """Surligne une plage de l'axe des abscisses, en fond du tracé."""
+        teinte = QtGui.QColor(couleur)
+        teinte.setAlpha(opacite)
+        region = pg.LinearRegionItem([x0, x1], movable=False,
+                                     brush=pg.mkBrush(teinte))
+        for trait in region.lines:      # pas de bord : seul le fond compte
+            trait.setPen(pg.mkPen(None))
+        region.setZValue(-10)
+        self.addItem(region, ignoreBounds=True)
+
     # --- survol ---
     def _survol(self, position):
         if not self._series or not self.sceneBoundingRect().contains(position):
@@ -240,7 +255,8 @@ class Graphique(pg.PlotWidget):
         for nom, xs, ys, unite in self._series:
             if len(xs) == 0:
                 continue
-            indice = int(min(range(len(xs)), key=lambda i: abs(xs[i] - point.x())))
+            # Recherche vectorisée : les tracés d'un essai font des milliers de points.
+            indice = int(np.argmin(np.abs(np.asarray(xs, dtype=float) - point.x())))
             x_cible = xs[indice]
             y_cible = ys[indice] if y_cible is None else y_cible
             prefixe = f"{nom} : " if nom else ""
@@ -249,8 +265,8 @@ class Graphique(pg.PlotWidget):
             return
         self._curseur.setPos(x_cible)
         self._curseur.show()
-        self._bulle.setHtml("<div>Essai {} — {}</div>".format(
-            int(round(x_cible)), " · ".join(textes)))
+        self._bulle.setHtml("<div>{} — {}</div>".format(
+            self.format_x.format(x_cible), " · ".join(textes)))
         self._bulle.setPos(x_cible, y_cible)
         self._bulle.show()
 

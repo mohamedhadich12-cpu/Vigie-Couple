@@ -188,3 +188,49 @@ def test_verdict_non_conforme_au_dela_de_l_ecart_admissible():
 def test_verdict_indetermine_sous_trois_essais():
     analyse = analyser([_essai(0, 0.0), _essai(1, 0.0)])
     assert analyse.verdict.statut == "indetermine"
+
+
+# --------------------------------------------------------------------------
+# Verdict d'une fenêtre, pour le surlignage des zones de dérive
+# --------------------------------------------------------------------------
+def test_statut_fenetre_conforme_dans_la_bande():
+    from vigie_couple.coeur.detection import statut_fenetre
+    reglages = Reglages(ecart_max_admissible=15.0)
+    assert statut_fenetre(0.5, mu0=0.0, sigma=1.0, reglages=reglages) == "conforme"
+    # Juste sous la bande d'accord : encore conforme.
+    assert statut_fenetre(1.9, mu0=0.0, sigma=1.0, reglages=reglages) == "conforme"
+
+
+def test_statut_fenetre_vigilance_hors_bande_d_accord():
+    from vigie_couple.coeur.detection import statut_fenetre
+    reglages = Reglages(ecart_max_admissible=15.0)
+    assert statut_fenetre(2.5, mu0=0.0, sigma=1.0, reglages=reglages) == "vigilance"
+    assert statut_fenetre(-2.5, mu0=0.0, sigma=1.0, reglages=reglages) == "vigilance"
+    # La bande est centrée sur μ₀, pas sur zéro.
+    assert statut_fenetre(5.0, mu0=5.0, sigma=1.0, reglages=reglages) == "conforme"
+
+
+def test_statut_fenetre_non_conforme_au_dela_de_l_ecart_admissible():
+    from vigie_couple.coeur.detection import statut_fenetre
+    reglages = Reglages(ecart_max_admissible=15.0)
+    assert statut_fenetre(20.0, mu0=0.0, sigma=1.0, reglages=reglages) == "non_conforme"
+    # L'écart admissible prime sur la bande, même si σ₀ est large.
+    assert statut_fenetre(20.0, mu0=0.0, sigma=50.0,
+                          reglages=reglages) == "non_conforme"
+
+
+def test_echelle_fenetre_combine_les_deux_dispersions():
+    """Une fenêtre isolée se juge sur σ₀ ET la dispersion interne à l'essai.
+
+    Comparée au seul σ₀, une fenêtre d'un essai parfaitement sain sortirait de
+    la bande une fois sur deux : les deux sources de variabilité s'ajoutent.
+    """
+    valeurs = [0.4, -0.5, 0.6, -0.3, 0.2, -0.6, 0.5, -0.4, 0.3, -0.2]
+    essais = [_essai(i, float(v), zero_avant=0.1, zero_apres=0.1)
+              for i, v in enumerate(valeurs * 3)]
+    analyse = analyser(essais, Reglages(ecart_max_admissible=100.0))
+    # _essai() fixe l'écart-type des fenêtres à 1,0 N·m.
+    assert analyse.sigma_fenetre == pytest.approx(1.0)
+    assert analyse.echelle_fenetre == pytest.approx(
+        np.hypot(analyse.sigma0, 1.0))
+    assert analyse.echelle_fenetre > analyse.sigma0
