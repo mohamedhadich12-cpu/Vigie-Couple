@@ -187,6 +187,15 @@ a aucun, un étalonnage de démonstration dans la fiche de vie — sinon la tuil
 Ce qu'on observe : verdict **Vigilance**, dérive détectée à l'essai 18,
 « Écart gauche/droite de +5,7 N·m : dérive de la voie gauche ».
 
+## Notice technique
+
+`documentation/Vigie_Couple_notice_technique.pdf` — 13 pages : le principe, la
+logique de calcul détaillée (chaîne de traitement, référence robuste, CUSUM,
+EWMA, verdict, discrimination), et le rôle exact de chaque bouton de
+l'interface. Régénérable par `python documentation/notice.py` ; les seuils
+cités y sont lus dans `config.yaml` à l'exécution, ils ne peuvent pas se
+désynchroniser du code.
+
 ## Tests
 
 ```bat
