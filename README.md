@@ -128,6 +128,17 @@ identification du capteur. Les voies `temperature` et `vitesse_lacet` sont
 facultatives : laissées vides, la sélection des fenêtres se rabat sur le critère
 de vitesse stabilisée et le test thermique est simplement sauté.
 
+**Mappage des voies sans éditer le YAML** — bouton **« Configurer les
+voies… »**, premier de l'écran Campagne : choisis un essai `.mf4` d'exemple,
+les voies qu'il contient apparaissent dans des listes déroulantes en face de
+chaque grandeur attendue (couple gauche/droite obligatoires, le reste
+facultatif). *Enregistrer* réécrit uniquement les lignes de voies dans
+`config.yaml`, sans toucher aux commentaires ni aux autres réglages. C'est le
+premier réflexe à avoir avant de charger des acquisitions réelles : sans cette
+étape, une voie au nom différent du jeu de démonstration fait échouer
+silencieusement la lecture de l'essai (message discret dans la ligne d'état,
+sous les boutons).
+
 ## Jeu de démonstration
 
 `donnees_demo/generateur.py` produit 30 essais MF4 sur une boucle d'essai
@@ -200,6 +211,7 @@ vigie_couple/
     ecran_campagne.py  écran 1
     ecran_surveillance.py  écran 2
     ecran_fiche.py     écran 3 et export PDF
+    dialogue_mappage.py  fenêtre de mappage des voies (config.yaml)
     theme.py           palette, styles, clair/sombre, widget de graphique
   coeur/
     lecture_mf4.py     lecture, rééchantillonnage, segmentation, résidus
@@ -209,6 +221,6 @@ tests/test_detection.py
 donnees_demo/generateur.py
 ```
 
-Neuf modules d'application, environ 1 900 lignes dont ~1 380 lignes de code
+Dix modules d'application, environ 2 100 lignes dont l'essentiel de code
 effectif : le reste est constitué des commentaires et docstrings en français.
 `detection.py` n'importe rien de Qt, ce qui le rend testable seul.

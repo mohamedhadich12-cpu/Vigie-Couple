@@ -6,10 +6,11 @@ Usage : python -m vigie_couple.main [--sombre] [chemin/config.yaml]
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PyQt5 import QtCore, QtWidgets
 
-from .coeur.lecture_mf4 import charger_config
+from .coeur.lecture_mf4 import CHEMIN_CONFIG, charger_config
 from .ui import theme
 from .ui.fenetre import Fenetre
 
@@ -25,7 +26,8 @@ def main(arguments: list[str] | None = None) -> int:
     QtCore.QLocale.setDefault(QtCore.QLocale(QtCore.QLocale.French,
                                              QtCore.QLocale.France))
     theme.preparer_pyqtgraph()
-    fenetre = Fenetre(charger_config(chemins[0] if chemins else None), mode)
+    chemin_config = Path(chemins[0]) if chemins else CHEMIN_CONFIG
+    fenetre = Fenetre(charger_config(chemin_config), chemin_config, mode)
     fenetre.show()
     return application.exec_()
 

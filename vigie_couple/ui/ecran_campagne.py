@@ -48,9 +48,10 @@ class EcranCampagne(QtWidgets.QWidget):
 
     essais_charges = QtCore.pyqtSignal(list)
 
-    def __init__(self, config: dict, parent=None):
+    def __init__(self, config: dict, chemin_config, parent=None):
         super().__init__(parent)
         self.config = config
+        self.chemin_config = chemin_config
         self.essais: list = []
         self._chargeur: Chargeur | None = None
         self._dossier = str(DOSSIER_DEMO.parent)
@@ -60,13 +61,18 @@ class EcranCampagne(QtWidgets.QWidget):
 
         boutons = QtWidgets.QHBoxLayout()
         boutons.setSpacing(theme.ESPACE)
+        self.bouton_mappage = QtWidgets.QPushButton("Configurer les voies…")
         self.bouton_fichiers = QtWidgets.QPushButton("Ajouter des fichiers…")
         self.bouton_dossier = QtWidgets.QPushButton("Ajouter un dossier…")
         self.bouton_demo = QtWidgets.QPushButton("Jeu de démonstration")
+        self.bouton_mappage.clicked.connect(self._configurer_voies)
         self.bouton_fichiers.clicked.connect(self._choisir_fichiers)
         self.bouton_dossier.clicked.connect(self._choisir_dossier)
         self.bouton_demo.clicked.connect(self._charger_demo)
-        for bouton in (self.bouton_fichiers, self.bouton_dossier, self.bouton_demo):
+        # « Configurer les voies… » en premier : c'est la première question à
+        # se poser avant de charger des acquisitions qui ne sont pas la démo.
+        for bouton in (self.bouton_mappage, self.bouton_fichiers,
+                       self.bouton_dossier, self.bouton_demo):
             boutons.addWidget(bouton)
         boutons.addStretch(1)
         disposition.addLayout(boutons)
@@ -117,6 +123,11 @@ class EcranCampagne(QtWidgets.QWidget):
             return
         self._lancer(trouves)
 
+    def _configurer_voies(self):
+        from .dialogue_mappage import DialogueMappage  # import tardif : évite un cycle
+        if DialogueMappage(self.config, self.chemin_config, self).exec_():
+            self.etat.setText("Mappage des voies enregistré.")
+
     # --- chargement ---
     def _lancer(self, chemins: list[Path]):
         if self._chargeur is not None and self._chargeur.isRunning():
@@ -135,7 +146,8 @@ class EcranCampagne(QtWidgets.QWidget):
         self._chargeur.start()
 
     def _activer(self, actif: bool):
-        for bouton in (self.bouton_fichiers, self.bouton_dossier, self.bouton_demo):
+        for bouton in (self.bouton_mappage, self.bouton_fichiers,
+                       self.bouton_dossier, self.bouton_demo):
             bouton.setEnabled(actif)
 
     def _avancer(self, rang: int, total: int, nom: str):

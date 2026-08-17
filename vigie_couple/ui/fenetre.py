@@ -5,7 +5,7 @@ from __future__ import annotations
 from PyQt5 import QtCore, QtWidgets
 
 from ..coeur.detection import Reglages, analyser
-from ..coeur.lecture_mf4 import reglages_depuis_config
+from ..coeur.lecture_mf4 import CHEMIN_CONFIG, reglages_depuis_config
 from ..coeur.stockage import Stockage, jours_restants
 from . import theme
 from .ecran_campagne import EcranCampagne
@@ -16,7 +16,7 @@ from .ecran_surveillance import EcranSurveillance
 class Fenetre(QtWidgets.QMainWindow):
     """Assemble les trois écrans et détient l'état partagé de la campagne."""
 
-    def __init__(self, config: dict, mode: str = "clair"):
+    def __init__(self, config: dict, chemin_config=CHEMIN_CONFIG, mode: str = "clair"):
         super().__init__()
         self.config = config
         self.mode = mode
@@ -45,7 +45,7 @@ class Fenetre(QtWidgets.QMainWindow):
         entete.addWidget(self.bouton_theme, 0, QtCore.Qt.AlignTop)
         disposition.addLayout(entete)
 
-        self.campagne = EcranCampagne(config)
+        self.campagne = EcranCampagne(config, chemin_config)
         self.surveillance = EcranSurveillance(self.reglages, mode)
         self.fiche = EcranFiche(self.stockage, self.capteur_id, config,
                                 self.surveillance.image_residu)

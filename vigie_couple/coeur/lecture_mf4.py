@@ -5,6 +5,7 @@ Le mappage des voies vient de config.yaml : aucun nom de signal en dur ici.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,23 @@ def charger_config(chemin: str | Path | None = None) -> dict:
     fichier = Path(chemin) if chemin else CHEMIN_CONFIG
     with open(fichier, "r", encoding="utf-8") as flux:
         return yaml.safe_load(flux) or {}
+
+
+def enregistrer_mappage(chemin_config: str | Path, mappage: dict[str, str]) -> None:
+    """Réécrit les voies choisies dans config.yaml, sans toucher au reste du fichier.
+
+    Un patch ciblé ligne à ligne plutôt qu'un ré-export YAML complet : les
+    commentaires et la mise en forme du fichier sont préservés.
+    """
+    chemin_config = Path(chemin_config)
+    texte = chemin_config.read_text(encoding="utf-8")
+    for cle, valeur in mappage.items():
+        rendu = f'"{valeur}"' if valeur == "" else valeur
+        motif = re.compile(rf"(?m)^(\s*{re.escape(cle)}:).*$")
+        texte, nb = motif.subn(lambda m, r=rendu: f"{m.group(1)} {r}", texte, count=1)
+        if nb == 0:   # clé absente du fichier : on l'ajoute à la fin de « signaux: »
+            texte = texte.replace("signaux:", f"signaux:\n  {cle}: {rendu}", 1)
+    chemin_config.write_text(texte, encoding="utf-8")
 
 
 def reglages_depuis_config(config: dict) -> Reglages:
