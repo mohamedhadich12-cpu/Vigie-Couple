@@ -1,0 +1,12 @@
+# Vigie Couple — dépendances épinglées (Python 3.11 ou supérieur).
+# PyQtWebEngine n'est pas listé : l'application ne l'utilise pas.
+PyQt5==5.15.11
+pyqtgraph==0.14.0
+asammdf==8.8.23
+numpy==2.4.6
+scipy==1.17.1
+reportlab==5.0.0
+pillow==12.3.0        # requis par reportlab pour insérer le graphique PNG
+PyYAML==6.0.1
+cffi==2.1.1           # dépendance native d'asammdf pour la lecture MF4
+pytest==8.3.4         # tests du cœur de calcul

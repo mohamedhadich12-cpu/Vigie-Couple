@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+donnees_demo/essais/
+vigie_couple/*.db
+*.pdf
+.pytest_cache/

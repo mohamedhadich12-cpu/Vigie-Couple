@@ -1,0 +1,214 @@
+# Vigie Couple
+
+Application de bureau pour la **détection précoce de dérive des capteurs de couple
+embarqués** sur véhicules d'essais : transmissions instrumentées, télémétrie
+Manner PCM16, étendue ±1 500 N·m.
+
+Livrable logiciel d'un stage d'ingénieur chez FEV France (centre technique de
+Belchamp, pour le compte de Stellantis). L'application répond à une seule
+question, essai après essai : **ce capteur a-t-il commencé à dériver ?**
+
+---
+
+## Principe
+
+Il n'existe pas d'étalon à bord. On analyse donc un **résidu**, en comparant le
+capteur à trois sources imparfaites, par fiabilité décroissante :
+
+| Rang | Source | Nature |
+|---|---|---|
+| 1 | **Voie opposée** (arbre gauche − arbre droit) | ne dépend d'aucun modèle — **source par défaut** |
+| 2 | **Zéro à couple nul**, avant et après essai | contrôle direct du décalage de zéro |
+| 3 | **Couple estimé par le calculateur** | dernier recours : le modèle a sa propre erreur |
+
+Le résidu est suivi essai après essai par deux cartes de contrôle à mémoire
+(CUSUM et EWMA), dont la référence μ₀ et σ₀ est estimée de façon **robuste**
+(médiane et MAD mis à l'échelle, σ ≈ 1,4826 × MAD) sur les N premiers essais.
+
+---
+
+## Installation (Windows, Visual Studio Code)
+
+Python 3.11 ou supérieur.
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+## Démarrage
+
+```bat
+python donnees_demo\generateur.py      :: 30 essais synthétiques, une seule fois
+python -m vigie_couple.main            :: lance l'application
+python -m vigie_couple.main --sombre   :: démarrage en mode sombre
+```
+
+Dans l'application : écran **Campagne** → bouton **Jeu de démonstration** →
+l'écran **Surveillance** s'ouvre avec le verdict.
+
+---
+
+## Les trois écrans
+
+**1. Campagne** — ajout de fichiers `.mf4` (sélection multiple) ou d'un dossier
+entier. La lecture se fait en tâche de fond avec barre de progression :
+l'interface ne se fige jamais. Le tableau donne, par essai, date, nom, durée,
+couple maximal, biais et écart-type du résidu, et un verdict.
+
+Traitement par essai : lecture `asammdf` → rééchantillonnage sur une base de
+temps commune (20 Hz) → segmentation en phases (arrêt, traction, freinage
+récupératif, transitoire) → sélection des fenêtres exploitables (vitesse
+stabilisée, ligne droite, hors transitoire) → une valeur de résidu par fenêtre
+de 2 s → indicateurs de l'essai. **Les transitoires sont exclus** : un défaut de
+synchronisation entre les deux voies y produit un élargissement de dispersion
+qu'on confondrait avec du bruit.
+
+**2. Surveillance** — l'écran principal. Un verdict unique (pastille, icône,
+mot, une phrase), un seul graphique choisi par trois onglets discrets (Résidu,
+CUSUM, EWMA), trois tuiles de statistiques. Les paramètres de réglage (λ, L, k,
+h, source, écart maximal admissible, essais de référence) sont dans un panneau
+latéral **fermé par défaut** ; toute modification recalcule immédiatement.
+
+| Verdict | Condition |
+|---|---|
+| **Conforme** (vert) | aucune carte n'a franchi son seuil |
+| **Vigilance** (orange) | une carte a franchi son seuil |
+| **Non conforme** (rouge) | écart supérieur à l'écart maximal admissible, ou dérive de zéro majeure |
+
+Un quatrième état, **En attente** (gris), s'affiche sous trois essais chargés :
+la référence n'est pas estimable.
+
+**3. Fiche de vie** — historique persistant par capteur dans un unique fichier
+SQLite (`vigie_couple/vigie_couple.db`, créé au premier lancement) :
+identification, relevés de zéro (alimentés automatiquement par chaque campagne)
+et contrôles par résistance de shunt, étalonnages, usage cumulé, échéance de
+réétalonnage avec **alerte au-delà de 370 jours** (plafond du règlement
+technique mondial ONU n° 21 pour la mesure de couple aux essieux), et export
+d'une fiche de synthèse d'une page en PDF.
+
+---
+
+## Cartes de contrôle
+
+**CUSUM** — `C⁺ᵢ = max(0, xᵢ − (μ₀ + K) + C⁺ᵢ₋₁)` et
+`C⁻ᵢ = max(0, (μ₀ − K) − xᵢ + C⁻ᵢ₋₁)`, avec `K = k·σ₀` et alarme au-delà de
+`H = h·σ₀`. Réglage par défaut k = 0,5 et h = 5.
+
+**EWMA** — `zᵢ = λ·xᵢ + (1 − λ)·zᵢ₋₁` avec `z₀ = μ₀`, limites
+`μ₀ ± L·σ₀·√[(λ/(2−λ))·(1 − (1−λ)^(2i))]`. Réglage par défaut λ = 0,10 et
+L = 2,7. Le **terme transitoire** est indispensable : sans lui les limites sont
+trop larges en début de série et la détection précoce est manquée précisément là
+où elle compte.
+
+Longueurs moyennes de série sans défaut mesurées par les tests (μ₀ et σ₀
+connus) : **CUSUM ≈ 450 essais**, **EWMA ≈ 315 essais**. Les deux cartes
+détectent un décalage de 1 σ en une dizaine d'essais.
+
+## Discrimination
+
+Quand une carte alarme, l'application exécute une séquence ordonnée du plus
+indépendant du modèle au plus dépendant, et affiche **la première conclusion
+atteinte**, en une phrase sous le verdict :
+
+1. écart gauche/droite présent → dérive d'une des deux voies, laquelle ;
+2. zéro déplacé au-delà du seuil de vigilance → dérive de zéro confirmée ;
+3. écart corrélé à la température → dérive thermique ;
+4. écart proportionnel au niveau de couple → dérive de sensibilité ;
+5. aucun des précédents → écart non expliqué, étalonnage de vérification.
+
+---
+
+## Configuration
+
+Tout est dans `vigie_couple/config.yaml` : mappage des voies (aucun nom de
+signal en dur dans le code), paramètres de traitement, réglages de détection,
+identification du capteur. Les voies `temperature` et `vitesse_lacet` sont
+facultatives : laissées vides, la sélection des fenêtres se rabat sur le critère
+de vitesse stabilisée et le test thermique est simplement sauté.
+
+## Jeu de démonstration
+
+`donnees_demo/generateur.py` produit 30 essais MF4 sur une boucle d'essai
+réaliste (paliers de vitesse et côtes, pour obtenir des fenêtres exploitables
+jusqu'à ~500 N·m) :
+
+* essais 1 à 12 : capteur sain, résidu centré ;
+* essais 13 à 22 : dérive de zéro lente sur la voie gauche, amplitude finale
+  ≈ 1,5 σ ;
+* essais 23 à 30 : dérive de sensibilité de 2 % sur la même voie, cumulée ;
+* essai 18 : valeur aberrante isolée (≈ 9 σ).
+
+La campagne est calée sur la date du jour et le générateur inscrit, s'il n'y en
+a aucun, un étalonnage de démonstration dans la fiche de vie — sinon la tuile
+« jours avant échéance » resterait vide.
+
+Ce qu'on observe : verdict **Vigilance**, dérive détectée à l'essai 18,
+« Écart gauche/droite de +5,7 N·m : dérive de la voie gauche ».
+
+## Tests
+
+```bat
+python -m pytest tests -q
+```
+
+14 tests sur `detection.py` uniquement (aucun test d'interface) : délai de
+détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
+comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
+de σ₀ à une valeur aberrante, et les cinq branches de la discrimination.
+
+---
+
+## Ce que l'application ne fait pas
+
+Pas d'apprentissage automatique, pas de serveur ni d'API, pas de multi-
+utilisateur, pas d'export PowerPoint, pas de système de plugins, pas plus de
+trois écrans. Toute fonction qui n'aide pas à répondre à « ce capteur dérive-t-il ? »
+est hors périmètre.
+
+## Limites connues, à dire en soutenance
+
+* **La référence sur 10 essais est peu précise.** σ₀ estimé par MAD sur 10
+  valeurs a une dispersion d'environ 30 % ; sur une campagne saine de 30 essais,
+  la probabilité qu'une des deux cartes alarme à tort est de l'ordre de 40 %.
+  Porter « essais de référence » à 20 ou plus dès que la campagne le permet.
+* **Une carte à mémoire réagit à un essai aberrant** : dans le jeu de
+  démonstration, l'essai 18 (≈ 9 σ) déclenche la CUSUM à lui seul. C'est le
+  comportement normal, et voulu, d'une CUSUM. Ce qui est demandé à l'estimateur
+  robuste, c'est de ne pas laisser cet essai fausser μ₀ et σ₀ : porté à 20
+  essais de référence, il ne les déplace que marginalement. Sans cet essai, la
+  dérive de zéro seule est détectée à l'essai 22, soit neuf essais après son
+  apparition — conforme à la longueur de série attendue.
+* **La voie opposée suppose un essieu symétrique** : hors ligne droite ou en
+  intervention du contrôle de motricité, la comparaison n'a pas de sens. Ces
+  échantillons sont exclus ; sans voie de lacet mappée, le critère de ligne
+  droite se réduit à la vitesse stabilisée et à la cohérence mesure/demande.
+* **Le couple estimé n'est pas une référence.** Il ne sert qu'à désigner la voie
+  suspecte lorsque l'écart gauche/droite est établi.
+* La fiche de vie cumule les essais : rejouer le générateur ajoute une nouvelle
+  campagne au même capteur (les essais sont identifiés par leur nom de fichier).
+
+## Architecture
+
+```
+vigie_couple/
+  main.py              point d'entrée
+  config.yaml          mappage des voies et réglages
+  ui/
+    fenetre.py         fenêtre principale, navigation, état partagé
+    ecran_campagne.py  écran 1
+    ecran_surveillance.py  écran 2
+    ecran_fiche.py     écran 3 et export PDF
+    theme.py           palette, styles, clair/sombre, widget de graphique
+  coeur/
+    lecture_mf4.py     lecture, rééchantillonnage, segmentation, résidus
+    detection.py       référence robuste, CUSUM, EWMA, discrimination — sans Qt
+    stockage.py        SQLite
+tests/test_detection.py
+donnees_demo/generateur.py
+```
+
+Neuf modules d'application, environ 1 900 lignes dont ~1 380 lignes de code
+effectif : le reste est constitué des commentaires et docstrings en français.
+`detection.py` n'importe rien de Qt, ce qui le rend testable seul.

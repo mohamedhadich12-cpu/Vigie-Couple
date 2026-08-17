@@ -1,0 +1,42 @@
+# Vigie Couple — configuration unique de l'application.
+# Les noms de voies dépendent de l'instrumentation : à adapter par essai type.
+# Convention : tous les couples sont exprimés par roue, en N·m.
+
+signaux:
+  couple_gauche:    CRoue_Trans_G
+  couple_droit:     CRoue_Trans_D
+  couple_estime:    TqWhlEst_tqWhlPt_RTE
+  couple_demande:   TqSpl_tqWhlFrntReq_RTE
+  vitesse_vehicule: Veh_spdVeh_RTE
+  pedale:           AcP_rAcc_P_RTE
+  # Voies facultatives : laisser vide si absentes de l'acquisition.
+  temperature:      Temp_Capteur_G
+  vitesse_lacet:    ""
+
+traitement:
+  frequence_hz: 20           # base de temps commune du rééchantillonnage
+  duree_fenetre_s: 2.0       # durée minimale d'une fenêtre exploitable
+  vitesse_min_kmh: 20        # en deçà, le couple est trop faible pour comparer
+  acceleration_max_ms2: 0.4  # au-delà on est en transitoire : fenêtre exclue
+  couple_min_nm: 60          # exclut les fenêtres à couple quasi nul
+  ecart_demande_max_nm: 120  # écart mesure/demande = intervention motricité
+  lacet_max_degs: 3          # ligne droite, si la voie de lacet est disponible
+
+detection:
+  source: voie_opposee       # voie_opposee | zero | couple_estime
+  n_reference: 10            # essais servant à estimer μ₀ et σ₀
+  lambda: 0.10
+  L: 2.7
+  k: 0.5
+  h: 5.0
+  ecart_max_admissible_nm: 15
+  zero_vigilance_nm: 3
+  zero_majeur_nm: 10
+
+capteur:
+  reference: MANNER PCM16 ±1500
+  numero_serie: SN-2417-G
+  arbre: Arbre de roue gauche
+  vehicule: Mule instrumentée 3008 HY4
+  jours_avant_reetalonnage: 370   # plafond RTM ONU n° 21
+  couple_forte_sollicitation_nm: 750   # au-delà, l'essai compte comme sévère
