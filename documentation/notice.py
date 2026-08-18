@@ -180,7 +180,9 @@ recit.append(Spacer(1, 6))
 table(["Section", "Contenu"], [
     ["1. Le principe", "La question posée, pourquoi un résidu, les trois sources de comparaison"],
     ["2. Traitement d'un essai", "De la lecture du fichier MF4 aux indicateurs de l'essai"],
-    ["3. Surveillance", "Référence robuste, CUSUM, EWMA, verdict, discrimination"],
+    ["", "Rattachement à un capteur, import cumulatif et dédoublonnage : § 4.2"],
+    ["3. Surveillance", "Référence robuste, CUSUM, EWMA, verdict, discrimination, "
+     "segments et ruptures de suivi"],
     ["4. Les écrans et leurs commandes", "Rôle exact de chaque bouton, champ et onglet"],
     ["5. Configuration", "Les clés de config.yaml et leur effet"],
     ["6. Limites connues", "Ce que l'outil ne sait pas faire, et pourquoi"],
@@ -421,9 +423,10 @@ table(["Carte", "ARL sans défaut", "Détection d'un décalage de 1 σ", "Lectur
 
 h2("3.5 Le verdict")
 p("Le verdict est évalué dans cet ordre, et le premier cas rencontré l'emporte.")
+p("Il porte sur le <b>segment en cours</b> (§ 3.8) : après une réinitialisation "
+  "du suivi, les essais antérieurs ne comptent plus pour le verdict, même s'ils "
+  "restent affichés.")
 table(["Verdict", "Condition", "Phrase affichée"], [
-    ["<b>En attente</b> (gris)", "moins de trois essais chargés",
-     "« Chargez au moins trois essais pour établir la référence. »"],
     ["<b>Non conforme</b> (rouge)",
      "un essai dont l'écart maximal dépasse %s N·m, ou dont le zéro après essai "
      "dépasse %s N·m en valeur absolue" % (nb(DE["ecart_max_admissible_nm"]),
@@ -432,9 +435,21 @@ table(["Verdict", "Condition", "Phrase affichée"], [
     ["<b>Vigilance</b> (orange)", "une des deux cartes a franchi son seuil",
      "« Dérive naissante détectée à l'essai du « date ». Étalonnage de "
      "vérification à programmer. »"],
+    ["<b>En attente</b> (gris)", "moins de trois essais, et aucune "
+     "réinitialisation",
+     "« Chargez au moins trois essais pour établir la référence. »"],
+    ["<b>Référence en cours de constitution</b> (gris)",
+     "le segment en cours compte moins de %s essais" % nb(DE["n_reference"]),
+     "« N essais sur %s nécessaires pour estimer la référence. » Si aucun essai "
+     "n'est postérieur à la réinitialisation, la phrase le dit et rappelle "
+     "qu'on peut annuler celle-ci." % nb(DE["n_reference"])],
     ["<b>Conforme</b> (vert)", "aucun des cas précédents",
      "« Aucune dérive détectée sur les N derniers essais. »"],
 ], [36, 62, 67])
+p("« Non conforme » vient <b>avant</b> la constitution de la référence : un "
+  "écart au-delà de l'admissible est un critère absolu, qui ne demande aucune "
+  "référence et ne doit donc pas être masqué pendant qu'elle se constitue.",
+  "legende")
 p("La date citée est celle du <b>premier</b> essai en cause, pas du dernier : "
   "c'est à partir de là que les mesures sont à revalider. Le verdict est "
   "toujours accompagné d'une icône et d'un libellé écrit — jamais de la "
@@ -502,6 +517,31 @@ table(["Fond de la zone", "Condition", "Signification"], [
 ], [30, 55, 80])
 
 
+h2("3.8 Segments et ruptures de suivi")
+p("Après un réétalonnage, un remplacement de capteur ou une réfection du "
+  "collage, l'ancienne référence n'est plus valable : comparer les essais qui "
+  "suivent à ceux qui précèdent n'a plus de sens. On pose alors une "
+  "<b>rupture</b>, qui découpe la série en <b>segments</b>.")
+puces([
+    "Chaque segment a <b>sa propre référence</b> μ<sub>0</sub> et "
+    "σ<sub>0</sub>, estimée sur ses premiers essais.",
+    "Les cartes CUSUM et EWMA <b>repartent de zéro</b> à chaque rupture : "
+    "aucune accumulation antérieure ne subsiste.",
+    "Le verdict et la discrimination ne portent que sur le <b>segment en "
+    "cours</b>.",
+    "<b>Aucun essai n'est effacé.</b> Le graphique du résidu continue de tous "
+    "les afficher, avec un trait vertical à la rupture, son motif en libellé, "
+    "et une bande d'accord par segment — on voit ainsi que la référence a "
+    "changé de niveau.",
+])
+p("Une rupture se pose depuis l'écran Fiche de vie, et <b>se retire</b> par le "
+  "bouton « Annuler la réinitialisation » : la série redevient continue et la "
+  "référence est réestimée sur l'ensemble des essais. C'est important, car une "
+  "réinitialisation posée par erreur — datée du jour alors que tous les essais "
+  "sont antérieurs — laisserait sinon l'écran Surveillance bloqué sur "
+  "« référence en cours de constitution ».")
+
+
 # ===========================================================================
 # 4. Les écrans et leurs commandes
 # ===========================================================================
@@ -519,11 +559,41 @@ table(["Commande", "Effet", "À savoir"], [
      "Bascule l'ensemble de l'interface, graphiques compris.",
      "Le mode sombre n'est pas une inversion automatique : c'est une seconde "
      "palette, définie couleur par couleur pour rester lisible."],
+    ["Menu <b>Capteur</b> → <b>Supprimer définitivement les données de ce "
+     "capteur…</b>",
+     "Efface réellement essais, relevés, étalonnages et réinitialisations du "
+     "capteur suivi.",
+     "Volontairement rangée dans un menu et non sous un bouton : double "
+     "confirmation, dont la saisie du numéro de série. C'est la seule action "
+     "de l'application qui détruise des données."],
 ], [42, 55, 68])
 
 h2("4.2 Écran 1 — Campagne")
-p("Rôle : charger des acquisitions et calculer les indicateurs de chaque essai. "
-  "Les boutons sont dans l'ordre où l'on s'en sert.")
+p("Rôle : choisir le capteur suivi, charger des acquisitions et calculer les "
+  "indicateurs de chaque essai.")
+
+p("<b>La barre du capteur suivi</b>, en haut, conditionne tout le reste : une "
+  "fiche de vie n'a de sens que par capteur, et un capteur remplacé est une "
+  "nouvelle histoire de dérive.", "corps")
+table(["Commande", "Effet", "À savoir"], [
+    ["Liste <b>Capteur suivi</b>",
+     "Choisit le capteur sur lequel portent tous les écrans.",
+     "En changer <b>filtre</b> la liste des essais, la Surveillance et la fiche "
+     "de vie. Rien n'est perdu, seulement masqué. Le choix est mémorisé d'un "
+     "lancement à l'autre."],
+    ["<b>Nouveau capteur</b>",
+     "Référence, numéro de série, arbre, véhicule, date de mise en service et "
+     "commentaire.",
+     "Le numéro de série est obligatoire : c'est lui qui identifie le capteur."],
+    ["<b>Modifier</b>", "Corrige les informations du capteur sélectionné.", "—"],
+], [36, 52, 77])
+p("<b>Aucun import n'est possible tant qu'aucun capteur n'est sélectionné</b> : "
+  "les boutons d'ajout sont grisés et la ligne d'état l'indique. Chaque essai "
+  "importé est rattaché définitivement au capteur actif au moment de l'import.",
+  "legende")
+
+p("<b>Les boutons d'import et de gestion de la liste</b>, ensuite, dans l'ordre "
+  "où l'on s'en sert.", "corps")
 table(["Commande", "Effet", "À savoir"], [
     ["<b>Configurer les voies…</b>",
      "Ouvre la fenêtre de mappage (§ 4.3).",
@@ -538,23 +608,50 @@ table(["Commande", "Effet", "À savoir"], [
      "l'ordre chronologique réel vient de l'horodatage interne des fichiers, "
      "affiché en première colonne."],
     ["<b>Jeu de démonstration</b>",
-     "Charge les 30 essais synthétiques.",
-     "Absent tant que <font face='%s'>donnees_demo/generateur.py</font> n'a pas "
-     "été lancé une fois ; le bouton le signale alors." % NORMALE],
+     "Bascule sur un capteur « Capteur de démonstration · DEMO » et y charge "
+     "les 30 essais synthétiques.",
+     "<b>Isolé du reste</b> : ces essais fictifs ne sont jamais versés dans la "
+     "fiche de vie d'un capteur réel, et la démonstration utilise le mappage de "
+     "voies du générateur — adapter config.yaml à vos acquisitions ne la casse "
+     "donc pas. Recliquer réutilise le même capteur DEMO. Absent tant que "
+     "<font face='%s'>donnees_demo/generateur.py</font> n'a pas été lancé une "
+     "fois ; le bouton le signale alors." % NORMALE],
     ["<b>Visualiser l'essai…</b>",
      "Ouvre la fenêtre de visualisation de l'essai sélectionné (§ 4.4).",
      "Inactif tant qu'aucune ligne n'est sélectionnée. Un <b>double-clic</b> sur "
      "une ligne fait la même chose."],
+    ["<b>Retirer la sélection</b>",
+     "Enlève de la liste les essais cochés.",
+     "Une case à cocher par ligne, en première colonne. Retire de la liste "
+     "suivie, sans toucher aux fichiers."],
+    ["<b>Vider la liste</b>",
+     "Enlève tous les essais du capteur, après confirmation.",
+     "L'historique déjà archivé dans la fiche de vie est conservé."],
     ["Barre de progression et ligne d'état",
-     "Avancement de la lecture, fichier par fichier.",
-     "La lecture tourne dans un fil séparé : l'interface reste réactive. C'est "
-     "aussi là que s'affichent les essais rejetés et la raison du rejet."],
+     "Avancement de la lecture, fichier par fichier, puis compte rendu.",
+     "La lecture tourne dans un fil séparé : l'interface reste réactive. Le "
+     "compte rendu donne le total et le nombre réellement ajouté. Si tous les "
+     "fichiers sont rejetés, la raison du premier rejet est affichée et renvoie "
+     "vers le mappage."],
 ], [36, 52, 77])
-p("<b>Le tableau</b> donne une ligne par essai : date et heure d'acquisition, "
-  "nom du fichier, durée, couple maximal atteint, biais et écart-type du "
-  "résidu, et un verdict par essai (pastille colorée doublée du mot). Le "
-  "verdict d'une ligne suit les mêmes règles que le verdict global, appliquées "
-  "à cet essai seul.")
+
+p("<b>Un import complète la liste, il ne la remplace jamais.</b> Les essais "
+  "déjà chargés restent en place, et trois règles s'appliquent :")
+puces([
+    "<b>Dédoublonnage sur le contenu.</b> Chaque essai est identifié par une "
+    "empreinte de son fichier, pas par son chemin : un même fichier importé "
+    "depuis deux dossiers ne compte qu'une fois.",
+    "<b>Retri chronologique</b> après chaque import. Un essai ancien importé "
+    "après coup reprend sa place dans la série — c'est l'ordre chronologique "
+    "qui donne leur sens aux cartes de contrôle.",
+    "<b>Recalcul complet</b> des cartes sur la série entière après chaque "
+    "import.",
+])
+p("<b>Le tableau</b> donne une ligne par essai : case à cocher, date et heure "
+  "d'acquisition, nom du fichier, durée, couple maximal atteint, biais et "
+  "écart-type du résidu, et un verdict par essai (pastille colorée doublée du "
+  "mot). Le verdict d'une ligne suit les mêmes règles que le verdict global, "
+  "appliquées à cet essai seul.")
 
 h2("4.3 Fenêtre de mappage des voies")
 p("Associe chaque grandeur nécessaire au calcul au nom réel du signal dans vos "
@@ -585,10 +682,24 @@ p("Outil d'inspection et de diagnostic. L'en-tête rappelle date, durée, couple
   "où regarder quand un essai ne produit aucun indicateur.")
 table(["Commande", "Effet", "À savoir"], [
     ["Onglet <b>Couple</b>",
-     "Voie gauche, voie droite et couple estimé en pointillés.",
-     "Les trois courbes sont à quelques N·m les unes des autres sur une étendue "
-     "de 1 500 : il faut zoomer pour les séparer. Les voies mesurées sont "
-     "dessinées par-dessus l'estimé."],
+     "Les <b>deux voies simultanément</b>, sur un axe des ordonnées unique.",
+     "Elles sont toutes deux en N·m : jamais de second axe. Les courbes sont à "
+     "quelques N·m les unes des autres sur une étendue de 1 500 — il faut "
+     "zoomer pour les séparer. Légende toujours présente."],
+    ["Cases <b>Voie gauche</b>, <b>Voie droite</b>, <b>Couple estimé</b>, "
+     "<b>Somme gauche + droite</b>",
+     "Affiche ou masque chaque série.",
+     "Les deux voies sont cochées par défaut, l'estimé et la somme non. La "
+     "somme est une grandeur dérivée, pas une voie : elle est tracée en tireté "
+     "et en couleur de texte, les trois couleurs de série restant réservées aux "
+     "voies elles-mêmes."],
+    ["Tracé de l'<b>écart gauche − droite</b>, sous le graphique de couple",
+     "Même base de temps, axe lié au zoom du graphique du dessus.",
+     "<b>C'est le signal le plus parlant</b> : sur un véhicule en ligne droite "
+     "cet écart doit rester faible et stable, et une voie qui part s'y voit "
+     "avant que les couples eux-mêmes ne bougent. L'écart brut à 20 Hz étant "
+     "dominé par le bruit d'échantillon (± 20 N·m), c'est sa moyenne glissante "
+     "sur 2 s qui est mise en avant, le brut restant en fond."],
     ["Onglet <b>Résidu</b>",
      "Résidu par fenêtre, avec la bande d'accord en fond.",
      "Une valeur par fenêtre, pas le résidu instantané (voir § 2.4). C'est "
@@ -599,9 +710,20 @@ table(["Commande", "Effet", "À savoir"], [
     ["Onglet <b>Tracé libre</b>",
      "Trace n'importe quelle voie du fichier, mappée ou non.",
      "Voir la ligne suivante pour les trois listes."],
-    ["<b>Voie A</b>, <b>Opération</b>, <b>Voie B</b>",
-     "Choix des voies et de l'opération : voie seule, A + B, A − B, ou moyenne "
-     "des deux.",
+    ["<b>Voie A</b>, <b>Voie B</b>",
+     "Listes <b>éditables</b> : on choisit dans la liste des voies du fichier, "
+     "ou l'on saisit librement un nom de signal.",
+     "Complétion insensible à la casse. Un nom absent du fichier est signalé — "
+     "« Signal introuvable dans cet essai » — <b>sans bloquer ni vider le "
+     "champ</b> : la saisie reste valable pour un autre essai. Les noms tapés à "
+     "la main sont mémorisés d'un essai et d'un lancement à l'autre, et "
+     "proposés ensuite en complétion."],
+    ["<b>Étiquette</b> (une par voie)",
+     "Nom d'affichage de la courbe dans la légende et le titre.",
+     "Par exemple « Arbre gauche » à la place de CRoue_Trans_G. Laissé vide, le "
+     "nom du signal est repris tel quel."],
+    ["<b>Opération</b>",
+     "Voie seule, A + B, A − B, ou moyenne des deux.",
      "Utile pour reconstituer le couple d'essieu, contrôler une voie absente du "
      "mappage ou comparer deux grandeurs. Les voies sont lues à la demande et "
      "mises en cache ; une voie non numérique est signalée à l'écran."],
@@ -665,6 +787,11 @@ table(["Commande", "Effet", "À savoir"], [
      "Référence, numéro de série, arbre, véhicule.",
      "Enregistrés dès que le champ perd le focus. Le numéro de série "
      "identifie le capteur : en changer bascule sur une autre fiche."],
+    ["Historique",
+     "Relevés de zéro, contrôles de shunt et réinitialisations, du plus récent "
+     "au plus ancien.",
+     "Les relevés de zéro y sont versés automatiquement à chaque campagne "
+     "chargée ; les réinitialisations y figurent avec leur motif."],
     ["Ligne d'échéance",
      "État de l'étalonnage : valide, échéance proche, ou dépassée.",
      "Alerte au-delà de <b>370 jours</b> depuis le dernier étalonnage, plafond "
@@ -683,6 +810,18 @@ table(["Commande", "Effet", "À savoir"], [
     ["<b>Ajouter un contrôle de shunt…</b>",
      "Saisie d'un contrôle par résistance de shunt.",
      "Vérification intermédiaire de la chaîne de mesure, entre deux étalonnages."],
+    ["<b>Réinitialiser le suivi…</b>",
+     "Pose une rupture de série datée, avec un motif — réétalonnage, "
+     "remplacement du capteur, réfection du collage, changement d'installation, "
+     "autre — et un commentaire.",
+     "<b>N'efface rien</b> : voir § 3.8. L'événement rejoint l'historique de la "
+     "fiche. Attention à la date proposée, celle du jour : tous les essais "
+     "antérieurs appartiennent alors au segment précédent, et si vos essais "
+     "sont plus anciens, le segment en cours est vide — la Surveillance le dit."],
+    ["<b>Annuler la réinitialisation</b>",
+     "Retire la dernière rupture posée.",
+     "Actif seulement s'il en existe une. La série redevient continue et la "
+     "référence est réestimée sur l'ensemble des essais."],
     ["<b>Exporter la fiche PDF</b>",
      "Produit une fiche de synthèse d'une page.",
      "Contient le verdict courant, le graphique du résidu et le tableau des "
@@ -718,12 +857,19 @@ table(["Clé", "Rôle", "Défaut"], [
      nb(TR["lacet_max_degs"])],
     ["<b>detection</b> (9 clés)", "Valeurs de départ du panneau Réglages.",
      "voir § 4.5"],
-    ["<b>capteur</b> (6 clés)", "Identification par défaut et seuil de forte "
-     "sollicitation.", "—"],
+    ["<b>capteur</b> (6 clés)", "Capteur créé au premier lancement, et seuil de "
+     "forte sollicitation.", "—"],
 ], [42, 88, 35])
-p("<b>Si rien ne se calcule sur vos essais</b> : ouvrez la visualisation d'un "
-  "essai. Si l'en-tête annonce 0 fenêtre retenue, la cause est presque toujours "
-  "dans le mappage (voies introuvables) ou dans ces seuils — un roulage urbain "
+p("Deux choses échappent volontairement à ce fichier. Le <b>jeu de "
+  "démonstration</b> porte son propre mappage de voies et son propre capteur, "
+  "pour ne dépendre ni de votre configuration ni de vos capteurs réels. Et la "
+  "base SQLite conserve, elle, ce qui relève de l'historique : capteurs, "
+  "essais, relevés, étalonnages, réinitialisations, et le capteur sélectionné "
+  "en dernier.", "legende")
+p("<b>Si rien ne se calcule sur vos essais</b>, la ligne d'état de l'écran "
+  "Campagne donne la raison du premier rejet. Si les essais sont acceptés mais "
+  "sans indicateurs, ouvrez la visualisation d'un essai : quand l'en-tête "
+  "annonce 0 fenêtre retenue, la cause est dans ces seuils — un roulage urbain "
   "à faible charge peut ne jamais atteindre %s km/h et %s N·m simultanément "
   "hors transitoire." % (nb(TR["vitesse_min_kmh"]), nb(TR["couple_min_nm"])))
 
@@ -769,12 +915,16 @@ table(["Fichier", "Contenu"], [
      "Lecture MF4, rééchantillonnage, segmentation, sélection des fenêtres, "
      "indicateurs, lecture de voies arbitraires."],
     ["<font face='%s'>coeur/stockage.py</font>" % NORMALE,
-     "Fiche de vie : un unique fichier SQLite."],
+     "Capteurs, essais, relevés, étalonnages, ruptures et préférences : un "
+     "unique fichier SQLite, migré automatiquement au démarrage."],
     ["<font face='%s'>ui/</font>" % NORMALE,
      "Fenêtre principale, les trois écrans, la fenêtre de mappage, la fenêtre "
      "de visualisation, et le thème (palette, styles, widget de graphique)."],
+    ["<font face='%s'>documentation/notice.py</font>" % NORMALE,
+     "Ce document. Les seuils qu'il cite sont lus dans config.yaml à "
+     "l'exécution : il ne peut pas se désynchroniser de la configuration."],
     ["<font face='%s'>tests/test_detection.py</font>" % NORMALE,
-     "18 tests sur le cœur de calcul uniquement, aucun test d'interface."],
+     "24 tests sur le cœur de calcul uniquement, aucun test d'interface."],
     ["<font face='%s'>donnees_demo/generateur.py</font>" % NORMALE,
      "30 essais MF4 synthétiques : sains 1 à 12, dérive de zéro 13 à 22, dérive "
      "de sensibilité de 2 % 23 à 30, essai aberrant isolé au 18."],
@@ -795,10 +945,19 @@ puces([
     "de sensibilité.",
     "Le verdict d'une fenêtre isolée utilise bien l'échelle combinée, et non "
     "σ<sub>0</sub> seul.",
+    "Deux imports successifs donnent bien la somme des essais, un troisième "
+    "import des mêmes fichiers n'ajoute rien, et le dédoublonnage porte sur le "
+    "contenu et non sur le chemin.",
+    "Un essai ancien importé après coup reprend sa place chronologique.",
+    "Une rupture remet les statistiques cumulées à zéro : les cartes du segment "
+    "valent exactement celles qu'on obtiendrait en repartant de ce segment.",
+    "En l'absence de rupture, le découpage en segments ne change rien au "
+    "comportement antérieur.",
 ])
 
 h2("Déroulé attendu sur le jeu de démonstration")
-p("Verdict <b>Vigilance</b>, dérive détectée à l'essai 18, avec la conclusion "
+p("Le bouton bascule sur le capteur « DEMO » et y charge les 30 essais. "
+  "Verdict <b>Vigilance</b>, dérive détectée à l'essai 18, avec la conclusion "
   "« Écart gauche/droite de +5,7 N·m : dérive de la voie gauche ». Dans la "
   "visualisation de l'essai 23, le résidu monte à 13 N·m pendant les côtes puis "
   "retombe à 3 N·m sur le plat : c'est la signature visuelle d'une dérive de "
