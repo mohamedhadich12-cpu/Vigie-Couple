@@ -128,6 +128,24 @@ def feuille_de_style(mode: str) -> str:
     """
 
 
+def pastille(statut: str, taille: int = 10) -> QtGui.QIcon:
+    """Pastille de statut sous forme d'icône, pour une cellule de tableau.
+
+    Une icône plutôt qu'un widget dans la cellule : un widget resterait enfant
+    du viewport à chaque reconstruction du tableau, et finirait par s'empiler.
+    Le libellé garde ainsi la couleur du texte, seule la pastille est colorée.
+    """
+    image = QtGui.QPixmap(taille, taille)
+    image.fill(QtCore.Qt.transparent)
+    peintre = QtGui.QPainter(image)
+    peintre.setRenderHint(QtGui.QPainter.Antialiasing)
+    peintre.setBrush(QtGui.QColor(couleur_statut(statut)))
+    peintre.setPen(QtCore.Qt.NoPen)
+    peintre.drawEllipse(0, 0, taille - 1, taille - 1)
+    peintre.end()
+    return QtGui.QIcon(image)
+
+
 def etiquette(texte: str, role: str = "", parent=None) -> QtWidgets.QLabel:
     """Libellé porteur d'un rôle de style ; la couleur reste celle du texte."""
     label = QtWidgets.QLabel(texte, parent)
@@ -191,8 +209,14 @@ class Graphique(pg.PlotWidget):
         self._series.clear()
         self.format_x = format_x        # en-tête de l'info-bulle de survol
         if self._legende is not None:
-            self._legende.scene().removeItem(self._legende)
+            # clear() a pu détacher la légende de la scène : on ne la retire
+            # que si elle s'y trouve encore.
+            scene = self._legende.scene()
+            if scene is not None:
+                scene.removeItem(self._legende)
             self._legende = None
+            # addLegend() rendrait la légende détachée au lieu d'en créer une.
+            self.getPlotItem().legend = None
         c = couleurs(self._mode)
         self.setTitle(titre, color=c["texte"], size="13px")
         for cote, texte in (("left", y_libelle), ("bottom", x_libelle)):
@@ -218,6 +242,10 @@ class Graphique(pg.PlotWidget):
             self._series.append((nom, x, y, unite))
         return courbe
 
+    def survol_seul(self, nom: str, x, y, unite: str = "N·m"):
+        """Ajoute une grandeur à l'info-bulle sans la tracer."""
+        self._series.append((nom, x, y, unite))
+
     def bande(self, x, bas, haut, couleur: str):
         """Bande d'accord en fond : deux courbes discrètes et un remplissage."""
         stylo = pg.mkPen(QtGui.QColor(couleur), width=1, style=QtCore.Qt.DotLine)
@@ -227,11 +255,14 @@ class Graphique(pg.PlotWidget):
         teinte.setAlpha(30)
         self.addItem(pg.FillBetweenItem(c1, c2, brush=pg.mkBrush(teinte)))
 
-    def repere(self, x: float, couleur: str):
-        """Repère vertical discret : l'essai qui a déclenché le verdict."""
+    def repere(self, x: float, couleur: str, libelle: str = ""):
+        """Repère vertical discret, avec un libellé facultatif à sa base."""
         stylo = pg.mkPen(couleur, width=1, style=QtCore.Qt.DashLine)
-        self.addItem(pg.InfiniteLine(pos=x, angle=90, movable=False, pen=stylo),
-                     ignoreBounds=True)
+        trait = pg.InfiniteLine(pos=x, angle=90, movable=False, pen=stylo)
+        if libelle:
+            trait.label = pg.InfLineLabel(trait, libelle, position=0.06,
+                                          color=couleur, movable=False)
+        self.addItem(trait, ignoreBounds=True)
 
     def zone(self, x0: float, x1: float, couleur: str, opacite: int = 45):
         """Surligne une plage de l'axe des abscisses, en fond du tracé."""

@@ -52,10 +52,25 @@ l'écran **Surveillance** s'ouvre avec le verdict.
 
 ## Les trois écrans
 
-**1. Campagne** — ajout de fichiers `.mf4` (sélection multiple) ou d'un dossier
+**1. Campagne** — en haut, le **capteur suivi** : liste des capteurs
+enregistrés, boutons *Nouveau capteur* et *Modifier*. Aucun import n'est
+possible sans capteur sélectionné, et chaque essai est rattaché définitivement
+au capteur actif au moment de l'import. Changer de capteur filtre la liste, la
+Surveillance et la fiche de vie ; rien n'est perdu, seulement masqué. Le choix
+est mémorisé d'un lancement à l'autre.
+
+En dessous, l'ajout de fichiers `.mf4` (sélection multiple) ou d'un dossier
 entier. La lecture se fait en tâche de fond avec barre de progression :
-l'interface ne se fige jamais. Le tableau donne, par essai, date, nom, durée,
-couple maximal, biais et écart-type du résidu, et un verdict.
+l'interface ne se fige jamais. **Chaque import complète la liste, il ne la
+remplace jamais** : les essais déjà chargés restent en place, les doublons sont
+reconnus à l'empreinte de leur contenu — un même fichier importé depuis deux
+dossiers ne compte qu'une fois — et la liste est retriée par date croissante,
+car c'est l'ordre chronologique qui donne leur sens aux cartes de contrôle. Le
+compte rendu indique le total et le nombre effectivement ajouté.
+
+Le tableau donne, par essai, une case à cocher, date, nom, durée, couple
+maximal, biais et écart-type du résidu, et un verdict. *Retirer la sélection*
+enlève les essais cochés, *Vider la liste* les enlève tous après confirmation.
 
 **Visualiser un essai** — double-clic sur une ligne du tableau (ou bouton
 *Visualiser l'essai…*) : une fenêtre montre les signaux de l'essai, un seul
@@ -67,12 +82,22 @@ L'en-tête donne la part exploitable de l'essai et la répartition des phases :
 c'est le premier endroit où regarder quand un essai ne produit aucun
 indicateur.
 
-*Tracé libre* : deux listes déroulantes donnent accès à **toutes les voies du
-fichier**, mappées ou non, et une troisième choisit l'opération — voie seule,
-`A + B`, `A − B`, ou moyenne des deux. Utile pour reconstituer le couple
-d'essieu (`CRoue_Trans_G + CRoue_Trans_D`), vérifier une voie non mappée, ou
-comparer deux grandeurs. Les voies sont lues à la demande et gardées en
-mémoire ; celles qui ne sont pas numériques sont signalées plutôt qu'ignorées.
+L'onglet *Couple* trace **les deux voies simultanément** sur un axe unique —
+elles sont toutes deux en N·m, il n'y a donc jamais de second axe des
+ordonnées. Une case à cocher par série permet d'ajouter le couple estimé et la
+somme des deux voies, décochés par défaut. Sous le graphique, une **courbe de
+l'écart gauche − droite** partage la même base de temps : c'est le signal où
+une voie qui part se voit avant que les couples eux-mêmes ne bougent. L'écart
+brut à 20 Hz étant dominé par le bruit d'échantillon (± 20 N·m), c'est sa
+moyenne glissante sur 2 s qui est mise en avant, le brut restant en fond.
+
+*Tracé libre* : deux listes **éditables** donnent accès à toutes les voies du
+fichier, mappées ou non — on peut aussi taper librement un nom de signal, avec
+complétion insensible à la casse. Un nom absent du fichier est signalé sans
+bloquer ni vider le champ, et les saisies manuelles sont mémorisées d'un essai
+et d'un lancement à l'autre. Un champ *Étiquette* par voie donne à la courbe un
+nom lisible dans la légende. Une troisième liste choisit l'opération — voie
+seule, `A + B`, `A − B`, ou moyenne des deux.
 
 Molette pour zoomer, glisser pour déplacer, bouton *Vue d'ensemble* pour
 revenir aux échelles complètes — utile pour séparer deux voies quasi
@@ -101,6 +126,17 @@ latéral **fermé par défaut** ; toute modification recalcule immédiatement.
 
 Un quatrième état, **En attente** (gris), s'affiche sous trois essais chargés :
 la référence n'est pas estimable.
+
+**Réinitialiser le suivi** (écran Fiche de vie) — après un réétalonnage ou une
+réparation, l'ancienne référence n'est plus valable. Le bouton demande un motif
+et **n'efface rien** : il pose une **rupture de série**. Les cartes repartent de
+zéro, une nouvelle référence μ₀ et σ₀ est estimée sur les essais suivants, et
+les essais antérieurs restent affichés avec un trait vertical marquant la
+rupture et son motif. Tant que le segment en cours compte moins d'essais que la
+période de référence, la Surveillance annonce « Référence en cours de
+constitution — N essais sur M » au lieu d'un verdict. La suppression réelle des
+données d'un capteur existe séparément, dans le menu **Capteur**, avec double
+confirmation et saisie du numéro de série.
 
 **3. Fiche de vie** — historique persistant par capteur dans un unique fichier
 SQLite (`vigie_couple/vigie_couple.db`, créé au premier lancement) :
@@ -202,11 +238,12 @@ désynchroniser du code.
 python -m pytest tests -q
 ```
 
-18 tests sur `detection.py` uniquement (aucun test d'interface) : délai de
+24 tests sur le cœur de calcul uniquement (aucun test d'interface) : délai de
 détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
 comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
 de σ₀ à une valeur aberrante, les cinq branches de la discrimination, et le
-verdict d'une fenêtre isolée avec son échelle propre.
+verdict d'une fenêtre isolée avec son échelle propre, la fusion des imports
+successifs sans doublon ni perte, et la remise à zéro des cartes à une rupture.
 
 ---
 

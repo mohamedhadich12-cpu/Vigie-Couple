@@ -5,6 +5,7 @@ Le mappage des voies vient de config.yaml : aucun nom de signal en dur ici.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -245,6 +246,7 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
         temperature=float(np.mean(temperature)) if temperature is not None else None,
         pente_couple=_pente(niveau, r_voie),
         chemin=str(chemin),
+        empreinte=empreinte(chemin),
     )
     return DetailEssai(indicateurs, t, voies, phases, masque, fenetres, r_voie)
 
@@ -275,6 +277,50 @@ def _pente(niveau, residu) -> float | None:
     if x.size < 4 or float(np.ptp(x)) < 100.0:
         return None
     return float(stats.linregress(x, y).slope)
+
+
+def cle_essai(essai: IndicateursEssai) -> str:
+    """Identité d'un essai : son contenu d'abord, son chemin à défaut.
+
+    L'empreinte reconnaît un même fichier importé depuis deux emplacements
+    différents, ce qu'une comparaison de chemins manquerait.
+    """
+    return essai.empreinte or essai.chemin or essai.nom
+
+
+def fusionner_essais(existants: list[IndicateursEssai],
+                     nouveaux) -> tuple[int, int]:
+    """Complète la liste existante, sans doublon, et la retrie par date.
+
+    La liste est modifiée sur place : un import ajoute à la collection, il ne
+    la remplace jamais. Rend (nombre ajouté, nombre de doublons ignorés).
+    L'ordre chronologique est rétabli après coup, car un essai ancien importé
+    après coup doit reprendre sa place dans la série que suivent les cartes.
+    """
+    connues = {cle_essai(e) for e in existants}
+    ajoutes = doublons = 0
+    for essai in nouveaux:
+        if cle_essai(essai) in connues:
+            doublons += 1
+            continue
+        connues.add(cle_essai(essai))
+        existants.append(essai)
+        ajoutes += 1
+    existants.sort(key=lambda e: e.date)
+    return ajoutes, doublons
+
+
+def empreinte(chemin: str | Path) -> str:
+    """Empreinte du contenu d'un fichier, lue par blocs.
+
+    Sert à reconnaître un essai déjà importé même s'il arrive depuis un autre
+    chemin. Le coût est négligeable devant l'analyse du MF4 elle-même.
+    """
+    condensat = hashlib.blake2b(digest_size=16)
+    with open(chemin, "rb") as flux:
+        for bloc in iter(lambda: flux.read(1 << 20), b""):
+            condensat.update(bloc)
+    return condensat.hexdigest()
 
 
 def fichiers_mf4(dossier: str | Path) -> list[Path]:

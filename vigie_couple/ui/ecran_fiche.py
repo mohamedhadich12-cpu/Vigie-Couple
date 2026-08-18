@@ -19,6 +19,48 @@ from .ecran_surveillance import Tuile
 CHAMPS = (("reference", "Référence"), ("numero_serie", "Numéro de série"),
           ("arbre", "Arbre"), ("vehicule", "Véhicule"))
 
+# Motifs de réinitialisation du suivi, du plus courant au plus rare.
+MOTIFS = ("Réétalonnage", "Remplacement du capteur", "Réfection du collage",
+          "Changement d'installation", "Autre")
+
+
+class DialogueRupture(QtWidgets.QDialog):
+    """Motif d'une réinitialisation du suivi. N'efface aucun essai."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Réinitialiser le suivi")
+        formulaire = theme.marges(QtWidgets.QFormLayout(self), theme.MARGE)
+        explication = theme.etiquette(
+            "Le suivi repart d'une nouvelle référence : les cartes de contrôle "
+            "sont remises à zéro et μ₀, σ₀ seront réestimés sur les essais qui "
+            "suivent. Les essais antérieurs sont conservés et restent affichés.",
+            "secondaire")
+        explication.setWordWrap(True)
+        explication.setFixedWidth(380)
+        formulaire.addRow(explication)
+        self.jour = QtWidgets.QDateEdit(QtCore.QDate.currentDate())
+        self.jour.setDisplayFormat("dd/MM/yyyy")
+        self.jour.setCalendarPopup(True)
+        self.motif = QtWidgets.QComboBox()
+        self.motif.addItems(MOTIFS)
+        self.commentaire = QtWidgets.QPlainTextEdit()
+        self.commentaire.setFixedHeight(60)
+        formulaire.addRow("Date", self.jour)
+        formulaire.addRow("Motif", self.motif)
+        formulaire.addRow("Commentaire", self.commentaire)
+        boutons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        boutons.button(QtWidgets.QDialogButtonBox.Ok).setText("Réinitialiser")
+        boutons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Annuler")
+        boutons.accepted.connect(self.accept)
+        boutons.rejected.connect(self.reject)
+        formulaire.addRow(boutons)
+
+    def valeurs(self) -> tuple[str, str, str]:
+        return (self.jour.date().toString("yyyy-MM-dd"),
+                self.motif.currentText(), self.commentaire.toPlainText().strip())
+
 
 class DialogueReleve(QtWidgets.QDialog):
     """Petite saisie : un étalonnage ou un contrôle par résistance de shunt."""
@@ -52,6 +94,8 @@ class DialogueReleve(QtWidgets.QDialog):
 
 class EcranFiche(QtWidgets.QWidget):
     """Historique persistant d'un capteur, lu et écrit dans le fichier SQLite."""
+
+    suivi_reinitialise = QtCore.pyqtSignal()
 
     def __init__(self, stockage: Stockage, capteur_id: int, config: dict,
                  image_residu=None, parent=None):
@@ -107,6 +151,7 @@ class EcranFiche(QtWidgets.QWidget):
         boutons.setSpacing(theme.ESPACE)
         for libelle, action in (("Ajouter un étalonnage…", self._ajouter_etalonnage),
                                 ("Ajouter un contrôle de shunt…", self._ajouter_shunt),
+                                ("Réinitialiser le suivi…", self._reinitialiser),
                                 ("Exporter la fiche PDF", self._exporter)):
             bouton = QtWidgets.QPushButton(libelle)
             bouton.clicked.connect(action)
@@ -149,10 +194,18 @@ class EcranFiche(QtWidgets.QWidget):
         self.tuiles[1].definir(str(usage["essais"]))
         self.tuiles[2].definir(str(usage["severes"]))
 
-        self._remplir(self.releves, [
-            (date_courte(r["date"]), r["type"],
-             theme.nombre(r["valeur"], 2, "N·m", signe=True), r["commentaire"] or "")
-            for r in self.stockage.releves(self.capteur_id)])
+        # Les réinitialisations figurent dans le même historique que les
+        # relevés : c'est la vie du capteur, dans l'ordre.
+        lignes = [(r["date"], r["type"],
+                   theme.nombre(r["valeur"], 2, "N·m", signe=True),
+                   r["commentaire"] or "")
+                  for r in self.stockage.releves(self.capteur_id)]
+        lignes += [(r["date"], f"réinitialisation — {r['motif']}", "—",
+                    r["commentaire"] or "")
+                   for r in self.stockage.ruptures(self.capteur_id)]
+        lignes.sort(key=lambda l: l[0], reverse=True)
+        self._remplir(self.releves, [(date_courte(d), t, v, c)
+                                     for d, t, v, c in lignes])
         self._remplir(self.etalonnages, [
             (date_courte(e["date"]), "± " + theme.nombre(e["incertitude"], 2, "N·m"),
              e["certificat"] or "")
@@ -211,6 +264,25 @@ class EcranFiche(QtWidgets.QWidget):
             jour, valeur, texte = boite.valeurs()
             self.stockage.ajouter_releve(self.capteur_id, jour, "shunt", valeur, texte)
             self.rafraichir()
+
+    def definir_capteur(self, capteur_id: int):
+        """Bascule la fiche sur un autre capteur."""
+        if capteur_id == self.capteur_id:
+            return
+        self.capteur_id = capteur_id
+        self.rafraichir()
+
+    def _reinitialiser(self):
+        """Repart d'une nouvelle référence, sans rien effacer."""
+        boite = DialogueRupture(self)
+        if boite.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        jour, motif, commentaire = boite.valeurs()
+        self.stockage.ajouter_rupture(self.capteur_id, jour, motif, commentaire)
+        self.rafraichir()
+        self.etat.setText(f"Suivi réinitialisé au {date_courte(jour)} — {motif}. "
+                          "Les essais antérieurs sont conservés.")
+        self.suivi_reinitialise.emit()
 
     def _exporter(self):
         chemin, _ = QtWidgets.QFileDialog.getSaveFileName(

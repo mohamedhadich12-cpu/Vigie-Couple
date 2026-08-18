@@ -12,16 +12,26 @@ CHEMIN_BASE = Path(__file__).resolve().parents[1] / "vigie_couple.db"
 # de couple aux essieux : 370 jours entre deux étalonnages.
 PLAFOND_JOURS = 370
 
+# Capteur créé d'office pour recueillir les essais enregistrés avant que le
+# rattachement à un capteur ne devienne obligatoire.
+CAPTEUR_ORPHELIN = "Non renseigné"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS capteur (
     id INTEGER PRIMARY KEY,
     reference TEXT, numero_serie TEXT UNIQUE,
-    arbre TEXT, vehicule TEXT);
+    arbre TEXT, vehicule TEXT,
+    date_service TEXT, commentaire TEXT);
 CREATE TABLE IF NOT EXISTS essai (
     id INTEGER PRIMARY KEY, capteur_id INTEGER, nom TEXT, date TEXT,
     duree_s REAL, couple_max REAL, distance_km REAL,
-    biais REAL, ecart_type REAL, ecart_max REAL,
+    biais REAL, ecart_type REAL, ecart_max REAL, empreinte TEXT,
     UNIQUE(capteur_id, nom));
+CREATE TABLE IF NOT EXISTS rupture (
+    id INTEGER PRIMARY KEY, capteur_id INTEGER, date TEXT,
+    motif TEXT, commentaire TEXT);
+CREATE TABLE IF NOT EXISTS preference (
+    cle TEXT PRIMARY KEY, valeur TEXT);
 CREATE TABLE IF NOT EXISTS releve (
     id INTEGER PRIMARY KEY, capteur_id INTEGER, date TEXT, type TEXT,
     valeur REAL, commentaire TEXT,
@@ -41,7 +51,34 @@ class Stockage:
         self.cx = sqlite3.connect(str(self.chemin))
         self.cx.row_factory = sqlite3.Row
         self.cx.executescript(SCHEMA)
+        self._migrer()
         self.cx.commit()
+
+    def _migrer(self):
+        """Complète le schéma des bases créées par une version antérieure.
+
+        Les colonnes manquantes sont ajoutées et les essais sans capteur sont
+        rattachés à un capteur « Non renseigné » : aucune donnée n'est perdue.
+        """
+        for table, colonne, type_sql in (
+                ("capteur", "date_service", "TEXT"),
+                ("capteur", "commentaire", "TEXT"),
+                ("essai", "empreinte", "TEXT")):
+            existantes = {ligne["name"] for ligne in
+                          self.cx.execute(f"PRAGMA table_info({table})")}
+            if colonne not in existantes:
+                self.cx.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {type_sql}")
+        orphelins = self.cx.execute(
+            "SELECT COUNT(*) AS n FROM essai WHERE capteur_id IS NULL"
+            " OR capteur_id NOT IN (SELECT id FROM capteur)").fetchone()["n"]
+        if orphelins:
+            recueil = self.capteur({"reference": CAPTEUR_ORPHELIN,
+                                    "numero_serie": CAPTEUR_ORPHELIN})
+            self.cx.execute(
+                "UPDATE essai SET capteur_id = ? WHERE capteur_id IS NULL"
+                " OR capteur_id NOT IN (SELECT id FROM capteur WHERE id != ?)",
+                (recueil, recueil))
+            print(f"{orphelins} essais sans capteur rattachés à « {CAPTEUR_ORPHELIN} ».")
 
     def fermer(self):
         self.cx.close()
@@ -54,18 +91,33 @@ class Stockage:
             "SELECT id FROM capteur WHERE numero_serie = ?", (serie,)).fetchone()
         if ligne:
             self.cx.execute(
-                "UPDATE capteur SET reference=?, arbre=?, vehicule=? WHERE id=?",
+                "UPDATE capteur SET reference=?, arbre=?, vehicule=?,"
+                " date_service=?, commentaire=? WHERE id=?",
                 (infos.get("reference", ""), infos.get("arbre", ""),
-                 infos.get("vehicule", ""), ligne["id"]))
+                 infos.get("vehicule", ""), infos.get("date_service", ""),
+                 infos.get("commentaire", ""), ligne["id"]))
             self.cx.commit()
             return int(ligne["id"])
         curseur = self.cx.execute(
-            "INSERT INTO capteur (reference, numero_serie, arbre, vehicule)"
-            " VALUES (?,?,?,?)",
+            "INSERT INTO capteur (reference, numero_serie, arbre, vehicule,"
+            " date_service, commentaire) VALUES (?,?,?,?,?,?)",
             (infos.get("reference", ""), serie, infos.get("arbre", ""),
-             infos.get("vehicule", "")))
+             infos.get("vehicule", ""), infos.get("date_service", ""),
+             infos.get("commentaire", "")))
         self.cx.commit()
         return int(curseur.lastrowid)
+
+    def capteurs(self) -> list[dict]:
+        """Tous les capteurs enregistrés, le plus récemment créé en dernier."""
+        return [dict(ligne) for ligne in
+                self.cx.execute("SELECT * FROM capteur ORDER BY id")]
+
+    def supprimer_capteur(self, capteur_id: int):
+        """Efface un capteur et tout ce qui s'y rattache. Sans retour possible."""
+        for table in ("essai", "releve", "etalonnage", "rupture"):
+            self.cx.execute(f"DELETE FROM {table} WHERE capteur_id = ?", (capteur_id,))
+        self.cx.execute("DELETE FROM capteur WHERE id = ?", (capteur_id,))
+        self.cx.commit()
 
     def infos_capteur(self, capteur_id: int) -> dict:
         ligne = self.cx.execute(
@@ -79,10 +131,11 @@ class Stockage:
             resume = essai.resume(source)
             self.cx.execute(
                 "INSERT OR IGNORE INTO essai (capteur_id, nom, date, duree_s,"
-                " couple_max, distance_km, biais, ecart_type, ecart_max)"
-                " VALUES (?,?,?,?,?,?,?,?,?)",
+                " couple_max, distance_km, biais, ecart_type, ecart_max, empreinte)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (capteur_id, essai.nom, essai.date, essai.duree_s, essai.couple_max,
-                 essai.distance_km, resume.biais, resume.ecart_type, resume.ecart_max))
+                 essai.distance_km, resume.biais, resume.ecart_type, resume.ecart_max,
+                 essai.empreinte))
             for type_releve, valeur in (("zéro avant", essai.zero_avant),
                                         ("zéro après", essai.zero_apres)):
                 if valeur is not None:
@@ -125,6 +178,34 @@ class Stockage:
             "SELECT MAX(date) AS jour FROM etalonnage WHERE capteur_id = ?",
             (capteur_id,)).fetchone()
         return ligne["jour"] if ligne and ligne["jour"] else None
+
+    # --- ruptures de suivi ---
+    def ajouter_rupture(self, capteur_id: int, date: str, motif: str,
+                        commentaire: str = ""):
+        """Enregistre une réinitialisation de suivi. N'efface aucun essai."""
+        self.cx.execute(
+            "INSERT INTO rupture (capteur_id, date, motif, commentaire)"
+            " VALUES (?,?,?,?)", (capteur_id, date, motif, commentaire))
+        self.cx.commit()
+
+    def ruptures(self, capteur_id: int) -> list[dict]:
+        lignes = self.cx.execute(
+            "SELECT date, motif, commentaire FROM rupture WHERE capteur_id = ?"
+            " ORDER BY date", (capteur_id,)).fetchall()
+        return [dict(ligne) for ligne in lignes]
+
+    # --- préférences ---
+    def preference(self, cle: str, defaut: str = "") -> str:
+        ligne = self.cx.execute(
+            "SELECT valeur FROM preference WHERE cle = ?", (cle,)).fetchone()
+        return ligne["valeur"] if ligne else defaut
+
+    def definir_preference(self, cle: str, valeur: str):
+        self.cx.execute(
+            "INSERT INTO preference (cle, valeur) VALUES (?,?)"
+            " ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur",
+            (cle, str(valeur)))
+        self.cx.commit()
 
     # --- usage cumulé ---
     def usage(self, capteur_id: int, seuil_severe: float = 750.0) -> dict:

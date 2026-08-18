@@ -67,6 +67,7 @@ class IndicateursEssai:
     temperature: float | None = None
     pente_couple: float | None = None         # sensibilité du résidu au couple
     chemin: str = ""
+    empreinte: str = ""        # empreinte du contenu, pour le dédoublonnage
 
     def resume(self, source: str) -> ResumeResidu:
         """Résumé du résidu pour la source demandée, avec repli sur la voie opposée."""
@@ -110,6 +111,39 @@ class Verdict:
 
 
 @dataclass
+class Rupture:
+    """Réinitialisation volontaire du suivi : réétalonnage, réparation…
+
+    Elle n'efface rien. Elle déclare que les essais qui suivent ne sont plus
+    comparables à ceux qui précèdent, et ouvre donc un nouveau segment.
+    """
+
+    date: str            # ISO court, comme IndicateursEssai.date
+    motif: str = ""
+    commentaire: str = ""
+
+
+@dataclass
+class Segment:
+    """Tranche de la série entre deux ruptures : sa propre référence."""
+
+    debut: int           # indice du premier essai, dans la série complète
+    fin: int             # indice de fin, exclu
+    mu0: float = 0.0
+    sigma0: float = 0.0
+    sigma_fenetre: float = 0.0
+    rupture: Rupture | None = None   # None pour le segment initial
+
+    @property
+    def taille(self) -> int:
+        return self.fin - self.debut
+
+    @property
+    def echelle_fenetre(self) -> float:
+        return float(np.hypot(self.sigma0, self.sigma_fenetre))
+
+
+@dataclass
 class Analyse:
     """Résultat complet, consommé tel quel par l'écran Surveillance."""
 
@@ -124,6 +158,12 @@ class Analyse:
     discrimination: Discrimination
     reglages: Reglages
     sigma_fenetre: float = 0.0   # dispersion des fenêtres à l'intérieur d'un essai
+    segments: list[Segment] = field(default_factory=list)
+
+    @property
+    def segment_courant(self) -> Segment:
+        """Le segment en cours : celui sur lequel porte le verdict."""
+        return self.segments[-1] if self.segments else Segment(0, len(self.essais))
 
     @property
     def echelle_fenetre(self) -> float:
@@ -321,36 +361,108 @@ def _correlation(a, b) -> float | None:
 
 
 # --- Verdict et analyse complète ---
+def bornes_segments(essais: list[IndicateursEssai],
+                    ruptures) -> list[Segment]:
+    """Découpe la série en segments : chaque rupture en ouvre un nouveau.
+
+    Une rupture postérieure au dernier essai crée un segment vide : c'est
+    l'état juste après une réinitialisation, avant le premier essai suivant.
+    """
+    debuts: list[tuple[int, Rupture | None]] = [(0, None)]
+    for rupture in sorted(ruptures or (), key=lambda r: r.date):
+        debut = next((i for i, e in enumerate(essais) if e.date >= rupture.date),
+                     len(essais))
+        if debut > debuts[-1][0]:
+            debuts.append((debut, rupture))
+        else:                    # deux ruptures sans essai entre elles
+            debuts[-1] = (debut, rupture)
+    segments = []
+    for rang, (debut, rupture) in enumerate(debuts):
+        fin = debuts[rang + 1][0] if rang + 1 < len(debuts) else len(essais)
+        segments.append(Segment(debut, fin, rupture=rupture))
+    return segments
+
+
 def analyser(essais: list[IndicateursEssai],
-             reglages: Reglages | None = None) -> Analyse:
-    """Enchaîne référence robuste, cartes de contrôle, verdict et discrimination."""
+             reglages: Reglages | None = None,
+             ruptures=()) -> Analyse:
+    """Enchaîne référence robuste, cartes de contrôle, verdict et discrimination.
+
+    Les cartes sont calculées à l'intérieur de chaque segment : une
+    rupture remet les sommes cumulées à zéro et fait réestimer la référence.
+    Les tableaux rendus couvrent malgré tout la série entière, pour que le
+    graphique continue d'afficher l'historique complet.
+    """
     reglages = reglages or Reglages()
     x = np.array([e.resume(reglages.source).biais for e in essais], dtype=float)
-    mu0, sigma0 = reference_robuste(x, reglages.n_reference)
-    cusum = carte_cusum(x, mu0, sigma0, reglages.k_cusum, reglages.h_cusum)
-    ewma = carte_ewma(x, mu0, sigma0, reglages.lambda_ewma, reglages.limite_L)
+    segments = bornes_segments(essais, ruptures)
 
-    verdict = _verdict(essais, reglages, cusum, ewma)
+    c_plus, c_moins = np.zeros(x.size), np.zeros(x.size)
+    z = np.zeros(x.size)
+    limite_sup, limite_inf = np.zeros(x.size), np.zeros(x.size)
+    alarmes_cusum = np.zeros(x.size, dtype=bool)
+    alarmes_ewma = np.zeros(x.size, dtype=bool)
+    H = K = 0.0
+
+    for segment in segments:
+        tranche = slice(segment.debut, segment.fin)
+        segment.mu0, segment.sigma0 = reference_robuste(x[tranche],
+                                                        reglages.n_reference)
+        segment.sigma_fenetre = _mediane(
+            [e.resume(reglages.source).ecart_type
+             for e in essais[segment.debut:segment.debut + reglages.n_reference]]) or 0.0
+        if segment.taille == 0:
+            continue
+        cusum_segment = carte_cusum(x[tranche], segment.mu0, segment.sigma0,
+                                    reglages.k_cusum, reglages.h_cusum)
+        ewma_segment = carte_ewma(x[tranche], segment.mu0, segment.sigma0,
+                                  reglages.lambda_ewma, reglages.limite_L)
+        c_plus[tranche], c_moins[tranche] = cusum_segment.c_plus, cusum_segment.c_moins
+        alarmes_cusum[tranche] = cusum_segment.alarmes
+        z[tranche] = ewma_segment.z
+        limite_sup[tranche] = ewma_segment.limite_sup
+        limite_inf[tranche] = ewma_segment.limite_inf
+        alarmes_ewma[tranche] = ewma_segment.alarmes
+        H, K = cusum_segment.H, cusum_segment.K   # seuils du segment en cours
+
+    courant = segments[-1]
+    # Les alarmes retenues pour le verdict sont celles du segment en cours :
+    # celles des segments antérieurs appartiennent à une histoire close.
+    cusum = ResultatCusum(c_plus, c_moins, H, K, alarmes_cusum,
+                          _premiere_depuis(alarmes_cusum, courant.debut))
+    ewma = ResultatEwma(z, limite_sup, limite_inf, alarmes_ewma,
+                        _premiere_depuis(alarmes_ewma, courant.debut))
+
+    verdict = _verdict(essais, reglages, cusum, ewma, courant)
     indice = verdict.indice_essai if verdict.statut != "conforme" else None
-    discrimination = (discriminer(essais, reglages, mu0, sigma0, indice)
-                      if verdict.statut in ("vigilance", "non_conforme")
-                      else Discrimination("aucune", ""))
-    # Dispersion typique des fenêtres, relevée sur la période de référence.
-    sigma_fenetre = _mediane([e.resume(reglages.source).ecart_type
-                              for e in essais[:reglages.n_reference]]) or 0.0
-    return Analyse(essais, reglages.source, x, mu0, sigma0, cusum, ewma,
-                   verdict, discrimination, reglages, sigma_fenetre)
+    if verdict.statut in ("vigilance", "non_conforme"):
+        local = None if indice is None else max(0, indice - courant.debut)
+        discrimination = discriminer(essais[courant.debut:courant.fin], reglages,
+                                     courant.mu0, courant.sigma0, local)
+    else:
+        discrimination = Discrimination("aucune", "")
+    return Analyse(essais, reglages.source, x, courant.mu0, courant.sigma0,
+                   cusum, ewma, verdict, discrimination, reglages,
+                   courant.sigma_fenetre, segments)
+
+
+def _premiere_depuis(alarmes: np.ndarray, debut: int) -> int | None:
+    """Première alarme à partir d'un indice donné, dans la série complète."""
+    indices = np.flatnonzero(alarmes)
+    indices = indices[indices >= debut]
+    return int(indices[0]) if indices.size else None
 
 
 def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
-             cusum: ResultatCusum, ewma: ResultatEwma) -> Verdict:
-    n = len(essais)
-    if n < 3:
-        return Verdict("indetermine", "En attente", "•",
-                       "Chargez au moins trois essais pour établir la référence.")
+             cusum: ResultatCusum, ewma: ResultatEwma,
+             segment: Segment) -> Verdict:
+    """Verdict du segment en cours. L'ordre des cas compte."""
+    n = segment.taille
 
-    # Non conforme : écart supérieur à l'admissible ou dérive de zéro majeure.
-    for i, essai in enumerate(essais):
+    # Non conforme d'abord : c'est un critère absolu, qui ne demande aucune
+    # référence et doit donc parler même pendant la constitution de celle-ci.
+    for i in range(segment.debut, segment.fin):
+        essai = essais[i]
         resume = essai.resume(reglages.source)
         depasse = resume.ecart_max > reglages.ecart_max_admissible
         zero = essai.zero_apres
@@ -360,6 +472,20 @@ def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
                 "non_conforme", "Non conforme", "✕",
                 "Mesure non exploitable. Revalider les essais depuis le "
                 f"{date_courte(essai.date)}.", i)
+
+    # « En attente » ne concerne que le tout début : après une rupture, même
+    # sans aucun essai, c'est bien une référence qui se reconstitue.
+    if segment.rupture is None and n < 3:
+        return Verdict("indetermine", "En attente", "•",
+                       "Chargez au moins trois essais pour établir la référence.")
+    if n < reglages.n_reference:
+        motif = ""
+        if segment.rupture is not None and segment.rupture.motif:
+            motif = f" Suivi réinitialisé ({segment.rupture.motif})."
+        return Verdict(
+            "constitution", "Référence en cours de constitution", "…",
+            f"{n} essais sur {reglages.n_reference} nécessaires pour estimer "
+            f"la référence.{motif}")
 
     alarmes = [a for a in (cusum.premiere_alarme, ewma.premiere_alarme)
                if a is not None]
@@ -406,10 +532,11 @@ def horodatage(date: str) -> str:
 
 
 def essais_depuis_conforme(analyse: Analyse) -> int:
-    """Nombre d'essais depuis le dernier essai sans alarme sur les deux cartes."""
-    alarmes = analyse.cusum.alarmes | analyse.ewma.alarmes
-    if not alarmes.any():
+    """Nombre d'essais depuis le dernier essai sans alarme, dans le segment en cours."""
+    segment = analyse.segment_courant
+    alarmes = (analyse.cusum.alarmes | analyse.ewma.alarmes)[segment.debut:segment.fin]
+    if not alarmes.size or not alarmes.any():
         return 0
     sains = np.flatnonzero(~alarmes)
     dernier = int(sains[-1]) if sains.size else -1
-    return len(analyse.essais) - dernier - 1
+    return int(alarmes.size - dernier - 1)

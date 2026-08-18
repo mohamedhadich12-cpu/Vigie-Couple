@@ -234,3 +234,114 @@ def test_echelle_fenetre_combine_les_deux_dispersions():
     assert analyse.echelle_fenetre == pytest.approx(
         np.hypot(analyse.sigma0, 1.0))
     assert analyse.echelle_fenetre > analyse.sigma0
+
+
+# --------------------------------------------------------------------------
+# Import : un import complète la liste, il ne la remplace pas
+# --------------------------------------------------------------------------
+def _importable(indice: int, empreinte: str, jour: int) -> IndicateursEssai:
+    essai = _essai(indice, 0.0)
+    essai.date = f"2026-03-{jour:02d} 09:00"
+    essai.empreinte = empreinte
+    essai.chemin = f"/essais/{empreinte}.mf4"
+    return essai
+
+
+def test_deux_imports_successifs_donnent_la_somme():
+    from vigie_couple.coeur.lecture_mf4 import fusionner_essais
+    liste = []
+    premier = [_importable(i, f"e{i}", i + 1) for i in range(5)]
+    second = [_importable(i, f"e{i}", i + 1) for i in range(5, 12)]
+
+    ajoutes, doublons = fusionner_essais(liste, premier)
+    assert (ajoutes, doublons, len(liste)) == (5, 0, 5)
+
+    ajoutes, doublons = fusionner_essais(liste, second)
+    assert (ajoutes, doublons) == (7, 0)
+    assert len(liste) == 12          # la somme, pas le dernier import seul
+
+    # Troisième import des mêmes fichiers : rien ne s'ajoute.
+    ajoutes, doublons = fusionner_essais(liste, premier + second)
+    assert (ajoutes, doublons, len(liste)) == (0, 12, 12)
+
+
+def test_import_dedoublonne_sur_le_contenu_pas_sur_le_chemin():
+    """Un même fichier rangé à deux endroits ne doit compter qu'une fois."""
+    from vigie_couple.coeur.lecture_mf4 import fusionner_essais
+    original = _importable(0, "meme-contenu", 1)
+    copie = _importable(0, "meme-contenu", 1)
+    copie.chemin = "/autre/dossier/copie.mf4"
+    liste = [original]
+    ajoutes, doublons = fusionner_essais(liste, [copie])
+    assert (ajoutes, doublons, len(liste)) == (0, 1, 1)
+
+
+def test_import_replace_les_essais_dans_l_ordre_chronologique():
+    """Un essai ancien importé après coup reprend sa place dans la série."""
+    from vigie_couple.coeur.lecture_mf4 import fusionner_essais
+    liste = []
+    fusionner_essais(liste, [_importable(2, "c", 20), _importable(3, "d", 25)])
+    fusionner_essais(liste, [_importable(0, "a", 3), _importable(1, "b", 10)])
+    assert [e.empreinte for e in liste] == ["a", "b", "c", "d"]
+
+
+# --------------------------------------------------------------------------
+# Rupture de suivi : segments et remise à zéro des cartes
+# --------------------------------------------------------------------------
+def _serie_datee(valeurs) -> list[IndicateursEssai]:
+    essais = []
+    for indice, valeur in enumerate(valeurs):
+        essai = _essai(indice, float(valeur))
+        essai.date = f"2026-03-{indice + 1:02d} 09:00"
+        essais.append(essai)
+    return essais
+
+
+def test_rupture_remet_les_statistiques_cumulees_a_zero():
+    from vigie_couple.coeur.detection import Rupture
+    motif = [0.4, -0.5, 0.6, -0.3, 0.2, -0.6, 0.5, -0.4, 0.3, -0.2]
+    # Quinze essais sains, puis quinze décalés de +3 N·m.
+    essais = _serie_datee([v for v in (motif + motif[:5])]
+                          + [v + 3.0 for v in (motif + motif[:5])])
+    reglages = Reglages(ecart_max_admissible=100.0)
+
+    sans = analyser(essais, reglages)
+    assert sans.verdict.statut == "vigilance"      # le décalage est détecté
+    assert sans.cusum.c_plus[-1] > 0.0             # la somme s'est accumulée
+
+    # Une rupture au 16ᵉ essai déclare que le décalage est la nouvelle normale.
+    avec = analyser(essais, reglages,
+                    ruptures=[Rupture(date="2026-03-16 00:00", motif="Réétalonnage")])
+    assert len(avec.segments) == 2
+    assert [s.debut for s in avec.segments] == [0, 15]
+
+    # Après la rupture, les cartes valent exactement ce qu'elles vaudraient si
+    # la série commençait là : rien de l'accumulation antérieure ne subsiste.
+    segment = avec.segments[1]
+    frais = carte_cusum(avec.x[15:], segment.mu0, segment.sigma0,
+                        reglages.k_cusum, reglages.h_cusum)
+    assert avec.cusum.c_plus[15:] == pytest.approx(frais.c_plus)
+    assert avec.cusum.c_moins[15:] == pytest.approx(frais.c_moins)
+    assert avec.cusum.c_plus[15] < sans.cusum.c_plus[15]     # l'ardoise est nette
+    assert avec.verdict.statut == "conforme"
+    # Les essais antérieurs restent tous dans l'analyse.
+    assert len(avec.essais) == len(essais)
+
+
+def test_rupture_recente_annonce_une_reference_en_constitution():
+    from vigie_couple.coeur.detection import Rupture
+    essais = _serie_datee([0.2, -0.3, 0.4, -0.1, 0.3, -0.4, 0.1, -0.2] * 3)
+    analyse = analyser(essais, Reglages(n_reference=10),
+                       ruptures=[Rupture(date="2026-03-21 00:00", motif="Réétalonnage")])
+    assert analyse.verdict.statut == "constitution"
+    assert "sur 10" in analyse.verdict.phrase
+    assert "Réétalonnage" in analyse.verdict.phrase
+
+
+def test_sans_rupture_le_comportement_est_inchange():
+    """La nouvelle notion de segment ne doit rien changer par défaut."""
+    essais = _serie_datee([0.4, -0.5, 0.6, -0.3, 0.2, -0.6, 0.5, -0.4, 0.3, -0.2] * 3)
+    analyse = analyser(essais, Reglages(ecart_max_admissible=100.0))
+    assert len(analyse.segments) == 1
+    assert analyse.segments[0].debut == 0
+    assert analyse.verdict.statut == "conforme"

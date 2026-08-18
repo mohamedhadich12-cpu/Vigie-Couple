@@ -107,6 +107,10 @@ class EcranSurveillance(QtWidgets.QWidget):
         self._analyse: Analyse | None = None
         colonne = theme.marges(QtWidgets.QVBoxLayout(), theme.MARGE)
 
+        # On doit toujours savoir de quel capteur parle le verdict affiché.
+        self.capteur = theme.etiquette("Aucun capteur sélectionné", "secondaire")
+        colonne.addWidget(self.capteur)
+
         # --- verdict ---
         ligne = QtWidgets.QHBoxLayout()
         ligne.setSpacing(theme.ESPACE + 4)
@@ -178,6 +182,11 @@ class EcranSurveillance(QtWidgets.QWidget):
         self.pastille.setStyleSheet(
             f"background: {couleur}; border-radius: 13px;")
 
+    def nommer_capteur(self, libelle: str):
+        """Rappelle en permanence le capteur auquel se rapporte le verdict."""
+        self.capteur.setText(f"Capteur suivi : {libelle}" if libelle
+                             else "Aucun capteur sélectionné")
+
     def afficher(self, analyse: Analyse, jours_restants: int | None = None):
         """Met à jour le verdict, le graphique et les trois tuiles."""
         self._analyse = analyse
@@ -210,10 +219,15 @@ class EcranSurveillance(QtWidgets.QWidget):
         if onglet == "Résidu":
             source = SOURCES.get(analyse.source, analyse.source)
             self.graphique.reinitialiser(f"Résidu essai par essai — {source}", "N·m")
-            demi = 1.96 * analyse.sigma0
-            self.graphique.bande(x, np.full(x.size, analyse.mu0 - demi),
-                                 np.full(x.size, analyse.mu0 + demi),
-                                 c["texte_secondaire"])
+            # Une bande par segment : chacun a sa propre référence.
+            for segment in analyse.segments or []:
+                if segment.taille == 0:
+                    continue
+                xs = x[segment.debut:segment.fin]
+                demi = 1.96 * segment.sigma0
+                self.graphique.bande(xs, np.full(xs.size, segment.mu0 - demi),
+                                     np.full(xs.size, segment.mu0 + demi),
+                                     c["texte_secondaire"])
             self.graphique.courbe(x, analyse.x, c["serie1"], unite="N·m")
         elif onglet == "CUSUM":
             self.graphique.reinitialiser(
@@ -235,6 +249,13 @@ class EcranSurveillance(QtWidgets.QWidget):
         indice = analyse.verdict.indice_essai
         if indice is not None:                      # repère de l'essai en cause
             self.graphique.repere(indice + 1, c["texte_secondaire"])
+        # Traits de rupture : les essais antérieurs restent affichés, mais on
+        # voit d'où repart la référence, et pourquoi.
+        for segment in analyse.segments or []:
+            if segment.rupture is None:
+                continue
+            libelle = segment.rupture.motif or "réinitialisation"
+            self.graphique.repere(segment.debut + 0.5, c["serie2"], libelle)
 
     # --- thème et export ---
     def appliquer_theme(self, mode: str):
