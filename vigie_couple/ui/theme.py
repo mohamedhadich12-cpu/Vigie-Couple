@@ -208,6 +208,10 @@ class Graphique(pg.PlotWidget):
         self.clear()
         self._series.clear()
         self.format_x = format_x        # en-tête de l'info-bulle de survol
+        # Sans cela, la bulle du tracé précédent reste affichée, avec ses
+        # anciennes valeurs, par-dessus le nouveau graphique.
+        self._curseur.hide()
+        self._bulle.hide()
         if self._legende is not None:
             # clear() a pu détacher la légende de la scène : on ne la retire
             # que si elle s'y trouve encore.

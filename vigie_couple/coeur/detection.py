@@ -479,13 +479,24 @@ def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
         return Verdict("indetermine", "En attente", "•",
                        "Chargez au moins trois essais pour établir la référence.")
     if n < reglages.n_reference:
-        motif = ""
-        if segment.rupture is not None and segment.rupture.motif:
-            motif = f" Suivi réinitialisé ({segment.rupture.motif})."
+        rupture = ""
+        if segment.rupture is not None:
+            quoi = f" ({segment.rupture.motif})" if segment.rupture.motif else ""
+            rupture = (f" Suivi réinitialisé au "
+                       f"{date_courte(segment.rupture.date)}{quoi}.")
+        if n == 0 and segment.rupture is not None:
+            # Cas courant d'une réinitialisation datée du jour : tous les essais
+            # chargés lui sont antérieurs. Le dire, sinon l'écran paraît en panne.
+            return Verdict(
+                "constitution", "Référence en cours de constitution", "…",
+                f"Aucun essai postérieur à la réinitialisation."
+                f"{rupture} Les essais antérieurs restent affichés ; chargez des "
+                "essais plus récents, ou annulez la réinitialisation depuis la "
+                "fiche de vie.")
         return Verdict(
             "constitution", "Référence en cours de constitution", "…",
             f"{n} essais sur {reglages.n_reference} nécessaires pour estimer "
-            f"la référence.{motif}")
+            f"la référence.{rupture}")
 
     alarmes = [a for a in (cusum.premiere_alarme, ewma.premiere_alarme)
                if a is not None]

@@ -188,6 +188,17 @@ class Stockage:
             " VALUES (?,?,?,?)", (capteur_id, date, motif, commentaire))
         self.cx.commit()
 
+    def supprimer_derniere_rupture(self, capteur_id: int) -> dict | None:
+        """Annule la dernière réinitialisation. Rend celle qui a été retirée."""
+        ligne = self.cx.execute(
+            "SELECT id, date, motif FROM rupture WHERE capteur_id = ?"
+            " ORDER BY date DESC, id DESC LIMIT 1", (capteur_id,)).fetchone()
+        if ligne is None:
+            return None
+        self.cx.execute("DELETE FROM rupture WHERE id = ?", (ligne["id"],))
+        self.cx.commit()
+        return dict(ligne)
+
     def ruptures(self, capteur_id: int) -> list[dict]:
         lignes = self.cx.execute(
             "SELECT date, motif, commentaire FROM rupture WHERE capteur_id = ?"

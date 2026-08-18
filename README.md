@@ -134,9 +134,17 @@ zéro, une nouvelle référence μ₀ et σ₀ est estimée sur les essais suiva
 les essais antérieurs restent affichés avec un trait vertical marquant la
 rupture et son motif. Tant que le segment en cours compte moins d'essais que la
 période de référence, la Surveillance annonce « Référence en cours de
-constitution — N essais sur M » au lieu d'un verdict. La suppression réelle des
-données d'un capteur existe séparément, dans le menu **Capteur**, avec double
-confirmation et saisie du numéro de série.
+constitution — N essais sur M » au lieu d'un verdict. Le bouton **Annuler la
+réinitialisation** retire la dernière rupture : la série redevient continue et
+la référence est réestimée sur l'ensemble des essais.
+
+Attention au choix de la date : la boîte de dialogue propose le jour même, et
+tous les essais qui lui sont antérieurs appartiennent alors au segment
+précédent. Si vos essais sont plus anciens que ce jour, le segment en cours est
+vide et la Surveillance l'annonce explicitement.
+
+La suppression réelle des données d'un capteur existe séparément, dans le menu
+**Capteur**, avec double confirmation et saisie du numéro de série.
 
 **3. Fiche de vie** — historique persistant par capteur dans un unique fichier
 SQLite (`vigie_couple/vigie_couple.db`, créé au premier lancement) :

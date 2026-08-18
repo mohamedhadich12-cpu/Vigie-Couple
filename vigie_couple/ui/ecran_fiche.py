@@ -156,6 +156,11 @@ class EcranFiche(QtWidgets.QWidget):
             bouton = QtWidgets.QPushButton(libelle)
             bouton.clicked.connect(action)
             boutons.addWidget(bouton)
+        # Une réinitialisation se corrige : sans cela, un clic malheureux fige
+        # l'écran Surveillance sur « référence en cours de constitution ».
+        self.bouton_annuler = QtWidgets.QPushButton("Annuler la réinitialisation")
+        self.bouton_annuler.clicked.connect(self._annuler_rupture)
+        boutons.addWidget(self.bouton_annuler)
         boutons.addStretch(1)
         self.etat = theme.etiquette("", "secondaire")
         disposition.addLayout(boutons)
@@ -204,6 +209,7 @@ class EcranFiche(QtWidgets.QWidget):
                     r["commentaire"] or "")
                    for r in self.stockage.ruptures(self.capteur_id)]
         lignes.sort(key=lambda l: l[0], reverse=True)
+        self.bouton_annuler.setEnabled(bool(self.stockage.ruptures(self.capteur_id)))
         self._remplir(self.releves, [(date_courte(d), t, v, c)
                                      for d, t, v, c in lignes])
         self._remplir(self.etalonnages, [
@@ -282,6 +288,29 @@ class EcranFiche(QtWidgets.QWidget):
         self.rafraichir()
         self.etat.setText(f"Suivi réinitialisé au {date_courte(jour)} — {motif}. "
                           "Les essais antérieurs sont conservés.")
+        self.suivi_reinitialise.emit()
+
+    def _annuler_rupture(self):
+        """Retire la dernière réinitialisation : la série redevient continue."""
+        derniere = self.stockage.ruptures(self.capteur_id)
+        if not derniere:
+            return
+        recente = derniere[-1]
+        reponse = QtWidgets.QMessageBox.question(
+            self, "Annuler la réinitialisation",
+            f"Retirer la réinitialisation du {date_courte(recente['date'])} "
+            f"({recente['motif']}) ?\n"
+            "La série redevient continue et la référence est réestimée sur "
+            "l'ensemble des essais.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No)
+        if reponse != QtWidgets.QMessageBox.Yes:
+            return
+        retiree = self.stockage.supprimer_derniere_rupture(self.capteur_id)
+        self.rafraichir()
+        if retiree:
+            self.etat.setText(
+                f"Réinitialisation du {date_courte(retiree['date'])} annulée.")
         self.suivi_reinitialise.emit()
 
     def _exporter(self):
