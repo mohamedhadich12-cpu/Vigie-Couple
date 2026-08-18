@@ -46,7 +46,9 @@ python -m vigie_couple.main --sombre   :: démarrage en mode sombre
 ```
 
 Dans l'application : écran **Campagne** → bouton **Jeu de démonstration** →
-l'écran **Surveillance** s'ouvre avec le verdict.
+l'écran **Surveillance** s'ouvre avec le verdict. La démonstration crée et
+sélectionne son propre capteur « DEMO » : vos capteurs réels ne sont pas
+touchés.
 
 ---
 
@@ -201,9 +203,11 @@ identification du capteur. Les voies `temperature` et `vitesse_lacet` sont
 facultatives : laissées vides, la sélection des fenêtres se rabat sur le critère
 de vitesse stabilisée et le test thermique est simplement sauté.
 
-Le **jeu de démonstration ne dépend pas de ce mappage** : ses fichiers sont
-produits par le générateur, leurs noms de voies sont donc connus et utilisés
-tels quels. Adapter `config.yaml` à vos acquisitions ne le casse pas.
+Le **jeu de démonstration est isolé du reste** : il bascule sur son propre
+capteur — « Capteur de démonstration · DEMO » — plutôt que de verser 30 essais
+synthétiques dans la fiche de vie d'un capteur réel, et il utilise le mappage
+de voies du générateur. Adapter `config.yaml` à vos acquisitions ne le casse
+donc pas, et le bouton reste utilisable même sans capteur sélectionné.
 
 **Mappage des voies sans éditer le YAML** — bouton **« Configurer les
 voies… »**, premier de l'écran Campagne : choisis un essai `.mf4` d'exemple,

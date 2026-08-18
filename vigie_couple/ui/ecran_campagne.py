@@ -22,6 +22,19 @@ COLONNES = ("", "Date", "Essai", "Durée", "Couple max", "Biais du résidu",
 DOSSIER_DEMO = Path(__file__).resolve().parents[2] / "donnees_demo" / "essais"
 ARBRES = ("Non précisé", "Gauche", "Droite")
 
+# Le jeu de démonstration a son propre capteur : ses essais sont synthétiques et
+# n'ont rien à faire dans la fiche de vie d'un capteur réel. Le numéro de série
+# sert de clé : recliquer sur le bouton retrouve ce capteur au lieu d'en créer
+# un nouveau à chaque fois.
+CAPTEUR_DEMO = {
+    "reference": "Capteur de démonstration",
+    "numero_serie": "DEMO",
+    "arbre": "Gauche",
+    "vehicule": "Mule fictive",
+    "commentaire": "Données synthétiques produites par donnees_demo/generateur.py. "
+                   "Ne correspond à aucun capteur réel.",
+}
+
 
 class Chargeur(QtCore.QThread):
     """Lecture des fichiers MF4 en tâche de fond, un essai à la fois."""
@@ -270,8 +283,9 @@ class EcranCampagne(QtWidgets.QWidget):
     def _actualiser_boutons(self):
         """Aucun import sans capteur : c'est ce qui garantit le rattachement."""
         pret = self.capteur_id is not None
-        for bouton in (self.bouton_fichiers, self.bouton_dossier, self.bouton_demo):
+        for bouton in (self.bouton_fichiers, self.bouton_dossier):
             bouton.setEnabled(pret)
+        self.bouton_demo.setEnabled(True)   # elle bascule sur son propre capteur
         self.bouton_modifier.setEnabled(pret)
         self.bouton_voir.setEnabled(bool(self.tableau.selectedItems()) and pret)
         self.bouton_retirer.setEnabled(bool(self._lignes_cochees()))
@@ -308,6 +322,11 @@ class EcranCampagne(QtWidgets.QWidget):
             self.etat.setText("Jeu de démonstration absent : lancez d'abord "
                               "« python donnees_demo/generateur.py ».")
             return
+        # Sur son propre capteur : on ne mélange pas des essais fictifs à
+        # l'historique d'un capteur suivi.
+        identifiant = self.stockage.capteur(CAPTEUR_DEMO)
+        if identifiant != self.capteur_id:
+            self.rafraichir_capteurs(selectionner=identifiant)
         # Avec son propre mappage : la démonstration doit marcher même une fois
         # config.yaml adapté aux voies du site.
         config = dict(self.config)
