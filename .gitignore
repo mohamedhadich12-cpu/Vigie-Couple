@@ -1,7 +1,18 @@
+# Environnements virtuels — jamais versionnés : ils dépendent de la machine
+# et de la version de Python installée.
+.venv/
+venv/
+env/
+
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Produits par l'application à l'exécution.
 donnees_demo/essais/
 vigie_couple/*.db
+
+# Les PDF exportés depuis l'application restent locaux ; la notice technique,
+# elle, est un livrable versionné.
 *.pdf
 !documentation/*.pdf
-.pytest_cache/
