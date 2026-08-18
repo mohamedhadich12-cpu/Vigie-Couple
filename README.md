@@ -193,6 +193,10 @@ identification du capteur. Les voies `temperature` et `vitesse_lacet` sont
 facultatives : laissées vides, la sélection des fenêtres se rabat sur le critère
 de vitesse stabilisée et le test thermique est simplement sauté.
 
+Le **jeu de démonstration ne dépend pas de ce mappage** : ses fichiers sont
+produits par le générateur, leurs noms de voies sont donc connus et utilisés
+tels quels. Adapter `config.yaml` à vos acquisitions ne le casse pas.
+
 **Mappage des voies sans éditer le YAML** — bouton **« Configurer les
 voies… »**, premier de l'écran Campagne : choisis un essai `.mf4` d'exemple,
 les voies qu'il contient apparaissent dans des listes déroulantes en face de

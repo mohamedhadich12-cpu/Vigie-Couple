@@ -12,8 +12,8 @@ from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 
 from ..coeur.detection import Analyse, horodatage
-from ..coeur.lecture_mf4 import (fichiers_mf4, fusionner_essais, lire_detail,
-                                 lire_essai)
+from ..coeur.lecture_mf4 import (MAPPAGE_DEMO, fichiers_mf4, fusionner_essais,
+                                 lire_detail, lire_essai)
 from ..coeur.stockage import Stockage
 from . import theme
 
@@ -124,6 +124,7 @@ class EcranCampagne(QtWidgets.QWidget):
         self.analyse: Analyse | None = None
         self._mode = "clair"
         self._chargeur: Chargeur | None = None
+        self._echecs: list[str] = []
         self._dossier = str(DOSSIER_DEMO.parent)
 
         disposition = theme.marges(QtWidgets.QVBoxLayout(self), theme.MARGE)
@@ -307,7 +308,11 @@ class EcranCampagne(QtWidgets.QWidget):
             self.etat.setText("Jeu de démonstration absent : lancez d'abord "
                               "« python donnees_demo/generateur.py ».")
             return
-        self._lancer(trouves)
+        # Avec son propre mappage : la démonstration doit marcher même une fois
+        # config.yaml adapté aux voies du site.
+        config = dict(self.config)
+        config["signaux"] = MAPPAGE_DEMO
+        self._lancer(trouves, config)
 
     def _configurer_voies(self):
         from .dialogue_mappage import DialogueMappage  # import tardif : évite un cycle
@@ -332,7 +337,7 @@ class EcranCampagne(QtWidgets.QWidget):
         FenetreEssai(detail, self.analyse, self._mode, self.stockage, self).exec_()
 
     # --- chargement ---
-    def _lancer(self, chemins: list[Path]):
+    def _lancer(self, chemins: list[Path], config: dict | None = None):
         if self.capteur_id is None:
             self.etat.setText("Sélectionnez ou créez un capteur avant d'importer "
                               "des essais.")
@@ -340,11 +345,12 @@ class EcranCampagne(QtWidgets.QWidget):
         if self._chargeur is not None and self._chargeur.isRunning():
             return
         self._ajoutes = self._doublons = 0
+        self._echecs: list[str] = []
         self._activer(False)
         self.progression.setRange(0, len(chemins))
         self.progression.setValue(0)
         self.progression.show()
-        self._chargeur = Chargeur(chemins, self.config, self)
+        self._chargeur = Chargeur(chemins, config or self.config, self)
         self._chargeur.progression.connect(self._avancer)
         self._chargeur.essai_lu.connect(self._ajouter)
         self._chargeur.echec.connect(self._signaler)
@@ -362,6 +368,7 @@ class EcranCampagne(QtWidgets.QWidget):
         self.etat.setText(f"Lecture de l'essai {rang} sur {total} — {nom}")
 
     def _signaler(self, nom: str, message: str):
+        self._echecs.append(f"{nom} : {message}")
         self.etat.setText(f"Essai ignoré — {nom} : {message}")
 
     def _ajouter(self, essai):
@@ -375,10 +382,19 @@ class EcranCampagne(QtWidgets.QWidget):
         self._activer(True)
         self._remplir_tableau()
         self.stockage.enregistrer_essais(self.capteur_id, self.essais)
-        message = f"{len(self.essais)} essais chargés — {self._ajoutes} ajoutés"
-        if self._doublons:
-            message += f", {self._doublons} déjà présents et ignorés"
-        self.etat.setText(message + ".")
+        if self._echecs and not self._ajoutes:
+            # Ne pas masquer la cause derrière un décompte à zéro : c'est le
+            # message qui permet de comprendre qu'un mappage ne convient pas.
+            self.etat.setText(
+                f"Aucun essai exploitable sur {len(self._echecs)} fichiers — "
+                f"{self._echecs[0]}. Vérifiez le mappage des voies.")
+        else:
+            message = f"{len(self.essais)} essais chargés — {self._ajoutes} ajoutés"
+            if self._doublons:
+                message += f", {self._doublons} déjà présents et ignorés"
+            if self._echecs:
+                message += f", {len(self._echecs)} illisibles"
+            self.etat.setText(message + ".")
         self._actualiser_boutons()
         self.essais_charges.emit(list(self.essais))
 

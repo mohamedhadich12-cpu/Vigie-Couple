@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Lecture des acquisitions MF4, segmentation en phases et calcul des résidus.
 
-Le mappage des voies vient de config.yaml : aucun nom de signal en dur ici.
+Le mappage des voies vient de config.yaml : le seul mappage en dur est celui du
+jeu de démonstration, dont nous produisons nous-mêmes les fichiers.
 """
 from __future__ import annotations
 
@@ -21,6 +22,20 @@ CHEMIN_CONFIG = Path(__file__).resolve().parents[1] / "config.yaml"
 
 # Phases d'un essai, dans l'ordre d'affichage.
 PHASES = ("arrêt", "traction", "freinage récupératif", "transitoire")
+
+# Voies du jeu de démonstration. Elles sont fixées par donnees_demo/generateur.py
+# et ne doivent pas dépendre du mappage adapté aux acquisitions du site : sinon
+# la démonstration cesse de fonctionner dès qu'on configure ses propres voies.
+MAPPAGE_DEMO = {
+    "couple_gauche": "CRoue_Trans_G",
+    "couple_droit": "CRoue_Trans_D",
+    "couple_estime": "TqWhlEst_tqWhlPt_RTE",
+    "couple_demande": "TqSpl_tqWhlFrntReq_RTE",
+    "vitesse_vehicule": "Veh_spdVeh_RTE",
+    "pedale": "AcP_rAcc_P_RTE",
+    "temperature": "Temp_Capteur_G",
+    "vitesse_lacet": "",
+}
 
 
 def charger_config(chemin: str | Path | None = None) -> dict:

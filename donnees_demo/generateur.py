@@ -116,6 +116,8 @@ def construire_essai(indice: int, debut: datetime, rng: np.random.Generator) -> 
     ambiante = 18.0 + float(rng.uniform(-6.0, 12.0))
     temperature = ambiante + 32.0 * (1.0 - np.exp(-t_temp / 90.0))
 
+    # Ces noms sont repris dans MAPPAGE_DEMO (coeur/lecture_mf4.py) : les deux
+    # listes doivent rester identiques.
     voies = [
         Signal(gauche, t_c, name="CRoue_Trans_G", unit="N.m"),
         Signal(droit, t_c, name="CRoue_Trans_D", unit="N.m"),
