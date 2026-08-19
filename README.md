@@ -150,8 +150,8 @@ La suppression réelle des données d'un capteur existe séparément, dans le me
 
 **3. Fiche de vie** — historique persistant par capteur dans un unique fichier
 SQLite (`vigie_couple/vigie_couple.db`, créé au premier lancement) :
-identification, relevés de zéro (alimentés automatiquement par chaque campagne)
-et contrôles par résistance de shunt, étalonnages, usage cumulé, échéance de
+identification, relevés de zéro (alimentés automatiquement par chaque campagne,
+un par essai) et contrôles par résistance de shunt, étalonnages, usage cumulé, échéance de
 réétalonnage avec **alerte au-delà de 370 jours** (plafond du règlement
 technique mondial ONU n° 21 pour la mesure de couple aux essieux), et export
 d'une fiche de synthèse d'une page en PDF.

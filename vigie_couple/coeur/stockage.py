@@ -139,7 +139,12 @@ class Stockage:
             for type_releve, valeur in (("zéro avant", essai.zero_avant),
                                         ("zéro après", essai.zero_apres)):
                 if valeur is not None:
-                    self.ajouter_releve(capteur_id, essai.date[:10], type_releve,
+                    # Horodatage complet, pas seulement le jour : la contrainte
+                    # d'unicité est (capteur_id, date, type), et deux essais du
+                    # même jour partageraient sinon la même ligne — seul le
+                    # premier importé serait conservé, les suivants ignorés en
+                    # silence par INSERT OR IGNORE, même en cas de vraie dérive.
+                    self.ajouter_releve(capteur_id, essai.date, type_releve,
                                         valeur, essai.nom, valider=False)
         self.cx.commit()
 
