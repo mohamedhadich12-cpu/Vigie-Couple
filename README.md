@@ -21,6 +21,15 @@ capteur à trois sources imparfaites, par fiabilité décroissante :
 | 2 | **Zéro à couple nul**, avant et après essai | contrôle direct du décalage de zéro |
 | 3 | **Couple estimé par le calculateur** | dernier recours : le modèle a sa propre erreur |
 
+Le résidu « couple estimé » compare la moyenne gauche/droite à `couple_estime`,
+en supposant une **estimation par roue**. Si le calculateur estime au contraire
+le couple **total de l'essieu** (les deux roues additionnées), il faut
+l'indiquer via `couple_estime_total_essieu: true` dans `config.yaml` — sinon
+la comparaison porte sur des grandeurs à une échelle différente d'un facteur
+~2, et produit un biais artificiel sans rapport avec une vraie dérive. Le jeu
+de démonstration n'est pas concerné : son couple estimé est construit par
+roue et reste correct quel que soit ce réglage.
+
 Le résidu est suivi essai après essai par deux cartes de contrôle à mémoire
 (CUSUM et EWMA), dont la référence μ₀ et σ₀ est estimée de façon **robuste**
 (médiane et MAD mis à l'échelle, σ ≈ 1,4826 × MAD) sur les N premiers essais.

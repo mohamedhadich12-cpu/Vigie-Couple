@@ -328,9 +328,14 @@ class EcranCampagne(QtWidgets.QWidget):
         if identifiant != self.capteur_id:
             self.rafraichir_capteurs(selectionner=identifiant)
         # Avec son propre mappage : la démonstration doit marcher même une fois
-        # config.yaml adapté aux voies du site.
+        # config.yaml adapté aux voies du site. Le générateur construit son
+        # couple_estime par roue : on force cette hypothèse même si le site a
+        # activé couple_estime_total_essieu, sinon la démo serait faussée d'un
+        # facteur ~2 sans raison.
         config = dict(self.config)
         config["signaux"] = MAPPAGE_DEMO
+        config["traitement"] = {**(self.config.get("traitement", {}) or {}),
+                                "couple_estime_total_essieu": False}
         self._lancer(trouves, config)
 
     def _configurer_voies(self):

@@ -345,3 +345,30 @@ def test_sans_rupture_le_comportement_est_inchange():
     assert len(analyse.segments) == 1
     assert analyse.segments[0].debut == 0
     assert analyse.verdict.statut == "conforme"
+
+
+# --------------------------------------------------------------------------
+# Correction du couple estimé, s'il s'agit d'un couple d'essieu total
+# --------------------------------------------------------------------------
+def test_correction_couple_estime_total_essieu():
+    """Un couple d'essieu total est ramené à l'échelle d'une roue."""
+    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
+    voies = {"couple_gauche": np.array([100.0]), "couple_estime": np.array([200.0])}
+    corriger_couple_estime(voies, {"couple_estime_total_essieu": True})
+    assert voies["couple_estime"] == pytest.approx([100.0])
+
+
+def test_correction_couple_estime_par_roue_inchange():
+    """Une estimation déjà par roue n'est pas modifiée."""
+    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
+    voies = {"couple_gauche": np.array([100.0]), "couple_estime": np.array([98.0])}
+    corriger_couple_estime(voies, {"couple_estime_total_essieu": False})
+    assert voies["couple_estime"] == pytest.approx([98.0])
+
+
+def test_correction_couple_estime_absent_ne_plante_pas():
+    """Sans voie couple_estime mappée, rien à corriger : pas d'erreur."""
+    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
+    voies = {"couple_gauche": np.array([100.0])}
+    corriger_couple_estime(voies, {"couple_estime_total_essieu": True})
+    assert "couple_estime" not in voies

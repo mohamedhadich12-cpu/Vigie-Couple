@@ -159,6 +159,21 @@ def _fenetres(masque: np.ndarray, taille: int) -> list[slice]:
     return fenetres
 
 
+def corriger_couple_estime(voies: dict, param: dict) -> None:
+    """Ramène couple_estime à l'échelle d'une roue si c'est un couple d'essieu.
+
+    Le résidu compare cette voie à la moyenne — voire à chaque voie
+    individuelle, dans la discrimination — gauche/droite, en supposant une
+    estimation *par roue*. Certains calculateurs estiment au contraire le
+    couple *total de l'essieu* (les deux roues additionnées) : sans cette
+    correction, la comparaison porterait sur des grandeurs à une échelle
+    différente d'un facteur ~2, et produirait un biais artificiel sans
+    rapport avec une vraie dérive.
+    """
+    if "couple_estime" in voies and param.get("couple_estime_total_essieu", False):
+        voies["couple_estime"] = voies["couple_estime"] * 0.5
+
+
 def _zero(voies: dict, phases: np.ndarray, fin: bool) -> float | None:
     """Résidu gauche − droite relevé à couple nul, avant ou après essai."""
     blocs = _blocs(phases == PHASES.index("arrêt"))
@@ -218,6 +233,7 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
     with MDF(chemin) as mdf:
         t, voies = _voies(mdf, config.get("signaux", {}) or {}, frequence)
         debut = mdf.header.start_time
+    corriger_couple_estime(voies, param)
 
     phases = segmenter(t, voies, param)
     masque = _masque_exploitable(t, voies, phases, param)
