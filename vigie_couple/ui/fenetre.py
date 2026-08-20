@@ -63,6 +63,7 @@ class Fenetre(QtWidgets.QMainWindow):
         self.campagne.capteur_change.connect(self._changer_capteur)
         self.surveillance.reglages_modifies.connect(self._recalculer)
         self.fiche.suivi_reinitialise.connect(self._recalculer)
+        self.fiche.capteur_modifie.connect(self._capteur_modifie)
         self._construire_menu()
         self.capteur_id = self.campagne.capteur_id or self.capteur_id
         self._changer_capteur(self.capteur_id)
@@ -87,6 +88,10 @@ class Fenetre(QtWidgets.QMainWindow):
             if infos.get(cle)))
         self.fiche.definir_capteur(capteur_id)
         self._recalculer()
+
+    def _capteur_modifie(self, capteur_id: int):
+        """L'identification a changé dans la fiche : les autres écrans la citent."""
+        self.campagne.rafraichir_capteurs(selectionner=capteur_id)
 
     def _essais_charges(self, essais: list):
         """La campagne est lue : on archive, on analyse, on montre la surveillance."""

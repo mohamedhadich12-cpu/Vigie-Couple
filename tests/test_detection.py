@@ -348,27 +348,148 @@ def test_sans_rupture_le_comportement_est_inchange():
 
 
 # --------------------------------------------------------------------------
-# Correction du couple estimé, s'il s'agit d'un couple d'essieu total
+# Échelle du couple estimé : essieu total contre estimation par roue
 # --------------------------------------------------------------------------
-def test_correction_couple_estime_total_essieu():
-    """Un couple d'essieu total est ramené à l'échelle d'une roue."""
-    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
-    voies = {"couple_gauche": np.array([100.0]), "couple_estime": np.array([200.0])}
-    corriger_couple_estime(voies, {"couple_estime_total_essieu": True})
-    assert voies["couple_estime"] == pytest.approx([100.0])
+def test_couple_estime_total_essieu_compare_la_somme_des_deux_voies():
+    """Un couple d'essieu total fait face à la SOMME des deux voies."""
+    from vigie_couple.coeur.lecture_mf4 import comparaison_couple_estime
+    gauche, droit = np.array([420.0]), np.array([400.0])
+    estime = np.array([800.0])          # couple total des deux roues
+    mesure, part_roue = comparaison_couple_estime(
+        gauche, droit, estime, total_essieu=True)
+    assert mesure == pytest.approx([820.0])            # 420 + 400
+    assert (mesure - estime) == pytest.approx([20.0])  # résidu à pleine échelle
+    # Chaque voie se compare à sa part, soit la moitié du total estimé.
+    assert part_roue == pytest.approx([400.0])
+    assert (gauche - part_roue) == pytest.approx([20.0])
+    assert (droit - part_roue) == pytest.approx([0.0])
 
 
-def test_correction_couple_estime_par_roue_inchange():
-    """Une estimation déjà par roue n'est pas modifiée."""
-    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
-    voies = {"couple_gauche": np.array([100.0]), "couple_estime": np.array([98.0])}
-    corriger_couple_estime(voies, {"couple_estime_total_essieu": False})
-    assert voies["couple_estime"] == pytest.approx([98.0])
+def test_couple_estime_par_roue_compare_la_moyenne():
+    """Une estimation par roue fait face à la MOYENNE des deux voies."""
+    from vigie_couple.coeur.lecture_mf4 import comparaison_couple_estime
+    gauche, droit = np.array([420.0]), np.array([400.0])
+    estime = np.array([400.0])          # couple d'une seule roue
+    mesure, part_roue = comparaison_couple_estime(
+        gauche, droit, estime, total_essieu=False)
+    assert mesure == pytest.approx([410.0])            # (420 + 400) / 2
+    assert (mesure - estime) == pytest.approx([10.0])
+    assert part_roue == pytest.approx([400.0])         # l'estimé lui-même
 
 
-def test_correction_couple_estime_absent_ne_plante_pas():
-    """Sans voie couple_estime mappée, rien à corriger : pas d'erreur."""
-    from vigie_couple.coeur.lecture_mf4 import corriger_couple_estime
-    voies = {"couple_gauche": np.array([100.0])}
-    corriger_couple_estime(voies, {"couple_estime_total_essieu": True})
-    assert "couple_estime" not in voies
+def test_couple_estime_les_deux_echelles_ne_se_confondent_pas():
+    """Le même essieu jugé aux deux échelles : le résidu diffère d'un facteur 2.
+
+    C'est tout l'enjeu du réglage couple_estime_total_essieu : se tromper
+    d'échelle double ou divise par deux le résidu, alors que l'écart maximal
+    admissible, lui, est un seuil absolu en N·m.
+    """
+    from vigie_couple.coeur.lecture_mf4 import comparaison_couple_estime
+    gauche, droit = np.array([420.0]), np.array([400.0])
+    total = np.array([800.0])
+    juste, _ = comparaison_couple_estime(gauche, droit, total, True)
+    faux, _ = comparaison_couple_estime(gauche, droit, total, False)
+    # Au bon réglage, l'essieu mesure 20 N·m de plus que le calculateur n'estime.
+    assert float((juste - total)[0]) == pytest.approx(20.0)
+    # Au mauvais, on compare une roue à un essieu : le résidu n'a plus de sens
+    # et dépasse de très loin l'écart maximal admissible.
+    assert abs(float((faux - total)[0])) > 10.0 * Reglages().ecart_max_admissible
+
+
+# --------------------------------------------------------------------------
+# Écriture du mappage : un nom de voie ne doit jamais casser config.yaml
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("nom", [
+    "CRoue_Trans_G",        # cas courant
+    "Couple: roue G",       # « : » — de la syntaxe pour YAML
+    "*CRoue_G",             # « * » — référence d'ancre YAML
+    "{CAN}Torque_G",        # « { » — début de dictionnaire
+    "@Trans_G",             # « @ » — caractère réservé
+    'Couple "G"',           # guillemets dans le nom lui-même
+    "Couple #1 G",          # « # » — début de commentaire
+])
+def test_le_mappage_reste_relisible_quel_que_soit_le_nom_de_voie(tmp_path, nom):
+    """Écrire un nom de voie ne doit pas rendre config.yaml illisible.
+
+    Un config.yaml corrompu empêche l'application de redémarrer : le mappage
+    doit accepter n'importe quel nom de signal d'acquisition.
+    """
+    import yaml
+    from vigie_couple.coeur.lecture_mf4 import CHEMIN_CONFIG, enregistrer_mappage
+
+    copie = tmp_path / "config.yaml"
+    copie.write_text(CHEMIN_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+    enregistrer_mappage(copie, {"couple_gauche": nom, "vitesse_lacet": ""})
+
+    relu = yaml.safe_load(copie.read_text(encoding="utf-8"))
+    assert relu["signaux"]["couple_gauche"] == nom
+    assert relu["signaux"]["vitesse_lacet"] == ""
+    # Le reste du fichier est intact : le patch est ciblé sur les voies.
+    assert relu["detection"]["source"] == "voie_opposee"
+
+
+# --------------------------------------------------------------------------
+# Archivage : les indicateurs suivent la source du résidu
+# --------------------------------------------------------------------------
+def test_l_archivage_suit_la_source_du_residu(tmp_path):
+    """Changer de source doit mettre à jour l'essai archivé, pas l'ignorer."""
+    from vigie_couple.coeur.stockage import Stockage
+
+    essai = _essai(0, 1.0)
+    essai.residus["couple_estime"] = ResumeResidu(biais=99.0, ecart_type=2.0,
+                                                  ecart_max=99.0)
+    stockage = Stockage(tmp_path / "vigie.db")
+    capteur = stockage.capteur({"numero_serie": "SN-TEST"})
+
+    stockage.enregistrer_essais(capteur, [essai], "voie_opposee")
+    stockage.enregistrer_essais(capteur, [essai], "couple_estime")
+    lignes = stockage.cx.execute("SELECT biais FROM essai").fetchall()
+
+    assert len(lignes) == 1                      # toujours un seul essai
+    assert lignes[0]["biais"] == pytest.approx(99.0)   # et la bonne source
+    stockage.fermer()
+
+
+def test_modifier_capteur_n_efface_pas_les_champs_absents(tmp_path):
+    """Un écran qui n'affiche pas tous les champs ne doit pas vider les autres."""
+    from vigie_couple.coeur.stockage import Stockage
+
+    stockage = Stockage(tmp_path / "vigie.db")
+    capteur = stockage.capteur({
+        "reference": "PCM16", "numero_serie": "SN-1", "arbre": "Gauche",
+        "vehicule": "Mule", "date_service": "2025-01-15",
+        "commentaire": "collage refait en mars"})
+
+    # La fiche de vie n'affiche que quatre champs sur six.
+    assert stockage.modifier_capteur(capteur, {
+        "reference": "PCM16 bis", "numero_serie": "SN-1",
+        "arbre": "Gauche", "vehicule": "Mule"})
+
+    infos = stockage.infos_capteur(capteur)
+    assert infos["reference"] == "PCM16 bis"
+    assert infos["date_service"] == "2025-01-15"          # préservés
+    assert infos["commentaire"] == "collage refait en mars"
+    assert len(stockage.capteurs()) == 1                  # pas de second capteur
+    stockage.fermer()
+
+
+def test_modifier_capteur_corrige_le_numero_de_serie_sans_detacher_l_historique(tmp_path):
+    """Corriger la série renomme le capteur : les essais restent les siens."""
+    from vigie_couple.coeur.stockage import Stockage
+
+    stockage = Stockage(tmp_path / "vigie.db")
+    capteur = stockage.capteur({"reference": "PCM16", "numero_serie": "SN-1"})
+    stockage.enregistrer_essais(capteur, [_essai(0, 0.0)])
+
+    assert stockage.modifier_capteur(capteur, {"numero_serie": "SN-2"})
+    assert len(stockage.capteurs()) == 1
+    assert stockage.infos_capteur(capteur)["numero_serie"] == "SN-2"
+    restants = stockage.cx.execute(
+        "SELECT COUNT(*) AS n FROM essai WHERE capteur_id = ?", (capteur,)).fetchone()
+    assert restants["n"] == 1
+
+    # En revanche, deux capteurs ne peuvent pas porter la même série.
+    autre = stockage.capteur({"numero_serie": "SN-3"})
+    assert stockage.modifier_capteur(autre, {"numero_serie": "SN-2"}) is False
+    assert stockage.infos_capteur(autre)["numero_serie"] == "SN-3"
+    stockage.fermer()

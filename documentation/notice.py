@@ -223,7 +223,9 @@ table(["Rang", "Source", "Calcul du résidu", "Ce qu'elle vaut"], [
      "Contrôle direct du décalage de zéro, la dérive la plus fréquente sur "
      "un capteur à jauges. Ne dit rien sur la sensibilité."],
     ["3", "Couple estimé",
-     "moyenne des deux voies − couple estimé par le calculateur",
+     "somme des deux voies − couple estimé, si le calculateur estime le couple "
+     "total de l'essieu ; leur moyenne s'il l'estime par roue "
+     "(réglage <font face='%s'>couple_estime_total_essieu</font>)" % NORMALE,
      "Dernier recours : le modèle d'estimation a sa propre erreur, souvent "
      "supérieure à la dérive cherchée. Sert surtout à désigner laquelle des "
      "deux voies dérive, une fois l'écart gauche/droite établi."],
@@ -431,9 +433,10 @@ table(["Verdict", "Condition", "Phrase affichée"], [
      "un essai dont l'écart maximal dépasse %s N·m, ou dont le zéro après essai "
      "dépasse %s N·m en valeur absolue" % (nb(DE["ecart_max_admissible_nm"]),
                                            nb(DE["zero_majeur_nm"])),
-     "« Mesure non exploitable. Revalider les essais depuis le « date ». »"],
+     "« Mesure non exploitable à l'essai n° N. Revalider les essais depuis "
+     "le « date ». »"],
     ["<b>Vigilance</b> (orange)", "une des deux cartes a franchi son seuil",
-     "« Dérive naissante détectée à l'essai du « date ». Étalonnage de "
+     "« Dérive naissante détectée à l'essai n° N du « date ». Étalonnage de "
      "vérification à programmer. »"],
     ["<b>En attente</b> (gris)", "moins de trois essais, et aucune "
      "réinitialisation",
@@ -450,11 +453,20 @@ p("« Non conforme » vient <b>avant</b> la constitution de la référence : un 
   "écart au-delà de l'admissible est un critère absolu, qui ne demande aucune "
   "référence et ne doit donc pas être masqué pendant qu'elle se constitue.",
   "legende")
-p("La date citée est celle du <b>premier</b> essai en cause, pas du dernier : "
-  "c'est à partir de là que les mesures sont à revalider. Le verdict est "
-  "toujours accompagné d'une icône et d'un libellé écrit — jamais de la "
-  "couleur seule, qui serait illisible pour une vision des couleurs "
+p("La date et le numéro cités sont ceux du <b>premier</b> essai en cause, pas "
+  "du dernier : c'est à partir de là que les mesures sont à revalider. Le "
+  "verdict est toujours accompagné d'une icône et d'un libellé écrit — jamais "
+  "de la couleur seule, qui serait illisible pour une vision des couleurs "
   "déficiente.", "legende")
+p("<b>« Non conforme » ne se lève pas tout seul.</b> Le critère porte sur "
+  "l'ensemble du segment, et non sur les derniers essais : au-delà de l'écart "
+  "maximal admissible, la chaîne de mesure n'est pas exploitable, et tout ce "
+  "qui a été mesuré depuis reste à revalider. Des essais sains qui suivent ne "
+  "font donc pas repasser l'écran au vert, et c'est voulu — un dépassement ne "
+  "s'annule pas par le silence. Deux sorties, toutes deux explicites : retirer "
+  "de la campagne les essais en cause, une fois leur sort tranché, ou déclarer "
+  "une <b>rupture de suivi</b> après réétalonnage ou réparation (§ 3.8), qui "
+  "ouvre un segment neuf sans rien effacer.")
 
 h2("3.6 La discrimination")
 p("Dire « ça dérive » ne suffit pas à décider quoi faire. Quand une carte "
@@ -503,8 +515,10 @@ p("Sur le jeu de démonstration, σ<sub>0</sub> = 0,82 N·m et "
   "avec le bon, il en reste 2 à 5 %, ce qu'une bande à 1,96 σ doit "
   "statistiquement produire.")
 table(["Fond de la zone", "Condition", "Signification"], [
-    ["Gris", "résidu dans la bande",
-     "Fenêtre retenue pour le calcul, conforme à la référence de campagne."],
+    ["Vert", "résidu dans la bande",
+     "Fenêtre retenue pour le calcul, conforme à la référence de campagne. "
+     "Teinte adoucie : elle couvre l'essentiel d'un essai sain, là où l'orange "
+     "et le rouge ne marquent que des exceptions à repérer vite."],
     ["Orange", "hors bande à 1,96 × échelle de fenêtre",
      "La fenêtre s'écarte de la référence. Quelques-unes sur un essai sain sont "
      "normales ; une majorité signe une dérive."],
@@ -647,11 +661,17 @@ puces([
     "<b>Recalcul complet</b> des cartes sur la série entière après chaque "
     "import.",
 ])
-p("<b>Le tableau</b> donne une ligne par essai : case à cocher, date et heure "
-  "d'acquisition, nom du fichier, durée, couple maximal atteint, biais et "
-  "écart-type du résidu, et un verdict par essai (pastille colorée doublée du "
-  "mot). Le verdict d'une ligne suit les mêmes règles que le verdict global, "
-  "appliquées à cet essai seul.")
+p("<b>Le tableau</b> donne une ligne par essai : case à cocher, <b>numéro "
+  "d'ordre</b>, date et heure d'acquisition, nom du fichier, durée, couple "
+  "maximal atteint, biais et écart-type du résidu, et un verdict par essai "
+  "(pastille colorée doublée du mot). Le verdict d'une ligne suit les mêmes "
+  "règles que le verdict global, appliquées à cet essai seul.")
+p("<b>Le numéro suit l'ordre chronologique</b> de la série, et se renumérote "
+  "après chaque import : c'est le rang de l'essai dans la campagne suivie, "
+  "celui-là même que citent les phrases de verdict (« essai n° 18 ») et le "
+  "titre de la fenêtre de visualisation. Un nom de fichier se lit mal à "
+  "l'oral et diffère d'un banc à l'autre ; un numéro se désigne d'un mot.",
+  "legende")
 
 h2("4.3 Fenêtre de mappage des voies")
 p("Associe chaque grandeur nécessaire au calcul au nom réel du signal dans vos "
@@ -855,6 +875,13 @@ table(["Clé", "Rôle", "Défaut"], [
      nb(TR["ecart_demande_max_nm"])],
     ["lacet_max_degs", "Critère de ligne droite, si la voie existe.",
      nb(TR["lacet_max_degs"])],
+    ["couple_estime_total_essieu",
+     "Échelle du signal <font face='%s'>couple_estime</font> : "
+     "<b>true</b> s'il porte le couple total de l'essieu — les deux roues "
+     "additionnées —, auquel cas on lui compare la <b>somme</b> des deux "
+     "voies ; <b>false</b> s'il l'estime par roue, auquel cas on lui compare "
+     "leur <b>moyenne</b>." % NORMALE,
+     "true" if TR.get("couple_estime_total_essieu") else "false"],
     ["<b>detection</b> (9 clés)", "Valeurs de départ du panneau Réglages.",
      "voir § 4.5"],
     ["<b>capteur</b> (6 clés)", "Capteur créé au premier lancement, et seuil de "
@@ -962,7 +989,7 @@ p("Le bouton bascule sur le capteur « DEMO » et y charge les 30 essais. "
   "visualisation de l'essai 23, le résidu monte à 13 N·m pendant les côtes puis "
   "retombe à 3 N·m sur le plat : c'est la signature visuelle d'une dérive de "
   "<b>sensibilité</b>, l'erreur étant proportionnelle au couple et non "
-  "constante. À comparer avec l'essai 01, presque entièrement gris.")
+  "constante. À comparer avec l'essai 01, presque entièrement vert.")
 
 
 # ===========================================================================

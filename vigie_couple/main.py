@@ -27,7 +27,18 @@ def main(arguments: list[str] | None = None) -> int:
                                              QtCore.QLocale.France))
     theme.preparer_pyqtgraph()
     chemin_config = Path(chemins[0]) if chemins else CHEMIN_CONFIG
-    fenetre = Fenetre(charger_config(chemin_config), chemin_config, mode)
+    try:
+        config = charger_config(chemin_config)
+    except Exception as erreur:
+        # Un fichier de configuration abîmé ne doit pas se solder par une trace
+        # Python sans fenêtre : l'opérateur doit lire quel fichier reprendre,
+        # et où.
+        QtWidgets.QMessageBox.critical(
+            None, "Configuration illisible",
+            f"Le fichier de configuration ne peut pas être lu :\n\n{chemin_config}"
+            f"\n\n{erreur}\n\nCorrigez-le, ou restaurez la version du dépôt.")
+        return 2
+    fenetre = Fenetre(config, chemin_config, mode)
     fenetre.show()
     return application.exec_()
 

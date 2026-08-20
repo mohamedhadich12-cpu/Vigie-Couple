@@ -12,28 +12,17 @@ from pathlib import Path
 from PyQt5 import QtCore, QtWidgets
 
 from ..coeur.detection import Analyse, horodatage
-from ..coeur.lecture_mf4 import (MAPPAGE_DEMO, fichiers_mf4, fusionner_essais,
-                                 lire_detail, lire_essai)
+from ..coeur.lecture_mf4 import (CAPTEUR_DEMO, MAPPAGE_DEMO, fichiers_mf4,
+                                 fusionner_essais, lire_detail, lire_essai)
 from ..coeur.stockage import Stockage
 from . import theme
 
-COLONNES = ("", "Date", "Essai", "Durée", "Couple max", "Biais du résidu",
+# Le numéro suit l'ordre chronologique de la série : c'est celui que citent
+# les verdicts (« essai n° 18 ») et le titre de la fenêtre de visualisation.
+COLONNES = ("", "N°", "Date", "Essai", "Durée", "Couple max", "Biais du résidu",
             "Écart-type", "Verdict")
 DOSSIER_DEMO = Path(__file__).resolve().parents[2] / "donnees_demo" / "essais"
 ARBRES = ("Non précisé", "Gauche", "Droite")
-
-# Le jeu de démonstration a son propre capteur : ses essais sont synthétiques et
-# n'ont rien à faire dans la fiche de vie d'un capteur réel. Le numéro de série
-# sert de clé : recliquer sur le bouton retrouve ce capteur au lieu d'en créer
-# un nouveau à chaque fois.
-CAPTEUR_DEMO = {
-    "reference": "Capteur de démonstration",
-    "numero_serie": "DEMO",
-    "arbre": "Gauche",
-    "vehicule": "Mule fictive",
-    "commentaire": "Données synthétiques produites par donnees_demo/generateur.py. "
-                   "Ne correspond à aucun capteur réel.",
-}
 
 
 class Chargeur(QtCore.QThread):
@@ -205,7 +194,9 @@ class EcranCampagne(QtWidgets.QWidget):
         entete.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         entete.setSectionResizeMode(0, QtWidgets.QHeaderView.Fixed)
         self.tableau.setColumnWidth(0, 28)
-        entete.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+        entete.setSectionResizeMode(1, QtWidgets.QHeaderView.Fixed)
+        self.tableau.setColumnWidth(1, 42)
+        entete.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeToContents)
         self.tableau.doubleClicked.connect(self._visualiser)
         self.tableau.itemSelectionChanged.connect(self._actualiser_boutons)
         self.tableau.itemChanged.connect(self._actualiser_boutons)
@@ -268,16 +259,15 @@ class EcranCampagne(QtWidgets.QWidget):
         infos = self.stockage.infos_capteur(self.capteur_id)
         boite = DialogueCapteur(infos, parent=self)
         if boite.exec_() == QtWidgets.QDialog.Accepted:
-            valeurs = boite.valeurs()
-            # Le numéro de série identifie le capteur : on met à jour la ligne
-            # existante plutôt que d'en créer une seconde.
-            self.stockage.cx.execute(
-                "UPDATE capteur SET reference=?, numero_serie=?, arbre=?,"
-                " vehicule=?, date_service=?, commentaire=? WHERE id=?",
-                (valeurs["reference"], valeurs["numero_serie"], valeurs["arbre"],
-                 valeurs["vehicule"], valeurs["date_service"],
-                 valeurs["commentaire"], self.capteur_id))
-            self.stockage.cx.commit()
+            # On met à jour la ligne existante, désignée par son identifiant,
+            # plutôt que d'en créer une seconde : le numéro de série lui-même
+            # doit pouvoir être corrigé sans détacher l'historique du capteur.
+            if not self.stockage.modifier_capteur(self.capteur_id, boite.valeurs()):
+                QtWidgets.QMessageBox.warning(
+                    self, "Numéro de série déjà utilisé",
+                    "Un autre capteur porte déjà ce numéro de série. "
+                    "Deux capteurs de même série ne seraient plus distinguables.")
+                return
             self.rafraichir_capteurs(selectionner=self.capteur_id)
 
     def _actualiser_boutons(self):
@@ -358,7 +348,8 @@ class EcranCampagne(QtWidgets.QWidget):
             return
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
-        FenetreEssai(detail, self.analyse, self._mode, self.stockage, self).exec_()
+        FenetreEssai(detail, self.analyse, self._mode, self.stockage, self,
+                     numero=ligne + 1).exec_()
 
     # --- chargement ---
     def _lancer(self, chemins: list[Path], config: dict | None = None):
@@ -367,6 +358,8 @@ class EcranCampagne(QtWidgets.QWidget):
                               "des essais.")
             return
         if self._chargeur is not None and self._chargeur.isRunning():
+            self.etat.setText("Lecture déjà en cours : attendez la fin de "
+                              "l'import avant d'en lancer un autre.")
             return
         self._ajoutes = self._doublons = 0
         self._echecs: list[str] = []
@@ -379,12 +372,13 @@ class EcranCampagne(QtWidgets.QWidget):
         self._chargeur.essai_lu.connect(self._ajouter)
         self._chargeur.echec.connect(self._signaler)
         self._chargeur.fini.connect(self._terminer)
+        self._chargeur.finished.connect(self._chargeur.deleteLater)
         self._chargeur.start()
 
     def _activer(self, actif: bool):
         for bouton in (self.bouton_mappage, self.bouton_fichiers, self.bouton_dossier,
-                       self.bouton_demo, self.bouton_retirer, self.bouton_vider,
-                       self.bouton_nouveau, self.capteurs):
+                       self.bouton_demo, self.bouton_voir, self.bouton_retirer,
+                       self.bouton_vider, self.bouton_nouveau, self.capteurs):
             bouton.setEnabled(actif)
 
     def _avancer(self, rang: int, total: int, nom: str):
@@ -405,7 +399,10 @@ class EcranCampagne(QtWidgets.QWidget):
         self.progression.hide()
         self._activer(True)
         self._remplir_tableau()
-        self.stockage.enregistrer_essais(self.capteur_id, self.essais)
+        # L'archivage est fait par Fenetre._essais_charges, seul endroit qui
+        # connaisse la source du résidu réellement en vigueur. Archiver ici
+        # aussi le ferait avec la source par défaut, et c'est cette écriture-là
+        # qui gagnerait puisqu'elle arrive la première.
         if self._echecs and not self._ajoutes:
             # Ne pas masquer la cause derrière un décompte à zéro : c'est le
             # message qui permet de comprendre qu'un mappage ne convient pas.
@@ -436,19 +433,21 @@ class EcranCampagne(QtWidgets.QWidget):
         source = (self.config.get("detection", {}) or {}).get("source", "voie_opposee")
         resume = essai.resume(source)
         minutes, secondes = divmod(int(essai.duree_s), 60)
-        valeurs = ("", horodatage(essai.date), essai.nom,
+        ligne = self.tableau.rowCount()
+        valeurs = ("", str(ligne + 1), horodatage(essai.date), essai.nom,
                    f"{minutes} min {secondes:02d} s",
                    theme.nombre(essai.couple_max, 0, "N·m"),
                    theme.nombre(resume.biais, 2, "N·m", signe=True),
                    theme.nombre(resume.ecart_type, 2, "N·m"), "")
-        ligne = self.tableau.rowCount()
         self.tableau.insertRow(ligne)
         for colonne, valeur in enumerate(valeurs):
             cellule = QtWidgets.QTableWidgetItem(valeur)
             if colonne == 0:
                 cellule.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
                 cellule.setCheckState(QtCore.Qt.Unchecked)
-            elif colonne >= 3:
+            elif colonne == 1:   # le numéro se lit en colonne, donc cadré à droite
+                cellule.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+            elif colonne >= 4:
                 cellule.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
             self.tableau.setItem(ligne, colonne, cellule)
 

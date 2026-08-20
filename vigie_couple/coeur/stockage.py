@@ -107,6 +107,35 @@ class Stockage:
         self.cx.commit()
         return int(curseur.lastrowid)
 
+    def modifier_capteur(self, capteur_id: int, infos: dict) -> bool:
+        """Modifie un capteur **désigné par son identifiant**, champ par champ.
+
+        À la différence de capteur(), qui identifie par numéro de série et crée
+        la ligne au besoin : ici on modifie une ligne existante, y compris son
+        numéro de série. Seules les clés fournies sont écrites — un écran qui
+        n'affiche pas la date de mise en service ne doit pas l'effacer en
+        enregistrant les champs qu'il affiche.
+
+        Rend False si le numéro de série demandé appartient déjà à un autre
+        capteur : deux capteurs de même série ne seraient plus distinguables.
+        """
+        colonnes = [cle for cle in ("reference", "numero_serie", "arbre", "vehicule",
+                                    "date_service", "commentaire") if cle in infos]
+        if not colonnes:
+            return True
+        serie = infos.get("numero_serie")
+        if serie is not None:
+            occupe = self.cx.execute(
+                "SELECT id FROM capteur WHERE numero_serie = ? AND id != ?",
+                (str(serie), capteur_id)).fetchone()
+            if occupe:
+                return False
+        self.cx.execute(
+            f"UPDATE capteur SET {', '.join(f'{c}=?' for c in colonnes)} WHERE id=?",
+            [str(infos[c] or "") for c in colonnes] + [capteur_id])
+        self.cx.commit()
+        return True
+
     def capteurs(self) -> list[dict]:
         """Tous les capteurs enregistrés, le plus récemment créé en dernier."""
         return [dict(ligne) for ligne in
@@ -126,13 +155,25 @@ class Stockage:
 
     # --- essais et relevés ---
     def enregistrer_essais(self, capteur_id: int, essais, source: str = "voie_opposee"):
-        """Archive les essais d'une campagne et les relevés de zéro associés."""
+        """Archive les essais d'une campagne et les relevés de zéro associés.
+
+        Un essai déjà archivé est **mis à jour**, pas ignoré : les indicateurs
+        dépendent de la source du résidu, et celle-ci se change à tout moment
+        depuis le panneau de réglages. Un INSERT OR IGNORE aurait figé pour
+        toujours la source en vigueur au premier import, et la fiche de vie
+        aurait archivé en silence un résidu qui n'est pas celui du verdict.
+        """
         for essai in essais:
             resume = essai.resume(source)
             self.cx.execute(
-                "INSERT OR IGNORE INTO essai (capteur_id, nom, date, duree_s,"
+                "INSERT INTO essai (capteur_id, nom, date, duree_s,"
                 " couple_max, distance_km, biais, ecart_type, ecart_max, empreinte)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " VALUES (?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(capteur_id, nom) DO UPDATE SET"
+                " date=excluded.date, duree_s=excluded.duree_s,"
+                " couple_max=excluded.couple_max, distance_km=excluded.distance_km,"
+                " biais=excluded.biais, ecart_type=excluded.ecart_type,"
+                " ecart_max=excluded.ecart_max, empreinte=excluded.empreinte",
                 (capteur_id, essai.nom, essai.date, essai.duree_s, essai.couple_max,
                  essai.distance_km, resume.biais, resume.ecart_type, resume.ecart_max,
                  essai.empreinte))

@@ -21,14 +21,22 @@ capteur à trois sources imparfaites, par fiabilité décroissante :
 | 2 | **Zéro à couple nul**, avant et après essai | contrôle direct du décalage de zéro |
 | 3 | **Couple estimé par le calculateur** | dernier recours : le modèle a sa propre erreur |
 
-Le résidu « couple estimé » compare la moyenne gauche/droite à `couple_estime`,
-en supposant une **estimation par roue**. Si le calculateur estime au contraire
-le couple **total de l'essieu** (les deux roues additionnées), il faut
-l'indiquer via `couple_estime_total_essieu: true` dans `config.yaml` — sinon
-la comparaison porte sur des grandeurs à une échelle différente d'un facteur
-~2, et produit un biais artificiel sans rapport avec une vraie dérive. Le jeu
-de démonstration n'est pas concerné : son couple estimé est construit par
-roue et reste correct quel que soit ce réglage.
+Le résidu « couple estimé » se compare **à l'échelle où le calculateur exprime
+son estimation**, jamais en remettant celle-ci à l'échelle :
+
+| `couple_estime_total_essieu` | Le signal `couple_estime` porte | Résidu |
+|---|---|---|
+| `true` *(défaut)* | le couple **total de l'essieu**, les deux roues additionnées | **(gauche + droite) − estimé** |
+| `false` | le couple **d'une roue** | (gauche + droite) / 2 − estimé |
+
+Se tromper de réglage compare une roue à un essieu : le résidu est faux d'un
+facteur ~2, alors que l'écart maximal admissible, lui, est un seuil absolu en
+N·m. À vérifier sur la documentation du calculateur. La discrimination, elle,
+compare toujours **chaque voie à sa part** — la moitié du total estimé — pour
+désigner la voie suspecte.
+
+Le jeu de démonstration n'est pas concerné : son couple estimé est construit
+par roue, et le bouton force `false` quel que soit le réglage du site.
 
 Le résidu est suivi essai après essai par deux cartes de contrôle à mémoire
 (CUSUM et EWMA), dont la référence μ₀ et σ₀ est estimée de façon **robuste**
@@ -79,14 +87,18 @@ dossiers ne compte qu'une fois — et la liste est retriée par date croissante,
 car c'est l'ordre chronologique qui donne leur sens aux cartes de contrôle. Le
 compte rendu indique le total et le nombre effectivement ajouté.
 
-Le tableau donne, par essai, une case à cocher, date, nom, durée, couple
-maximal, biais et écart-type du résidu, et un verdict. *Retirer la sélection*
+Le tableau donne, par essai, une case à cocher, un **numéro d'ordre**, date,
+nom, durée, couple maximal, biais et écart-type du résidu, et un verdict. Le
+numéro suit l'ordre chronologique et se renumérote après chaque import : c'est
+le rang que citent les verdicts (« essai n° 18 ») et le titre de la fenêtre de
+visualisation. Un nom de fichier se lit mal à l'oral, un numéro se désigne d'un
+mot. *Retirer la sélection*
 enlève les essais cochés, *Vider la liste* les enlève tous après confirmation.
 
 **Visualiser un essai** — double-clic sur une ligne du tableau (ou bouton
 *Visualiser l'essai…*) : une fenêtre montre les signaux de l'essai, un seul
 graphique à la fois, en quatre onglets — Couple, Résidu, Vitesse, **Tracé
-libre**. Les plages retenues pour le calcul sont surlignées en gris, et **les
+libre**. Les plages retenues pour le calcul sont surlignées en vert, et **les
 zones où le résidu sort de la bande d'accord en orange**, au-delà de l'écart
 admissible en rouge — toujours avec un libellé texte, jamais la couleur seule.
 L'en-tête donne la part exploitable de l'essai et la répartition des phases :
@@ -137,6 +149,14 @@ latéral **fermé par défaut** ; toute modification recalcule immédiatement.
 
 Un quatrième état, **En attente** (gris), s'affiche sous trois essais chargés :
 la référence n'est pas estimable.
+
+**« Non conforme » ne se lève pas tout seul.** Le critère porte sur tout le
+segment, pas sur les derniers essais : au-delà de l'écart maximal admissible la
+chaîne de mesure n'est pas exploitable, et tout ce qui a été mesuré depuis reste
+à revalider. Des essais sains qui suivent ne font donc pas repasser l'écran au
+vert — un dépassement ne s'annule pas par le silence. Deux sorties, toutes deux
+explicites : retirer de la campagne les essais en cause une fois leur sort
+tranché, ou déclarer une rupture de suivi après réétalonnage.
 
 **Réinitialiser le suivi** (écran Fiche de vie) — après un réétalonnage ou une
 réparation, l'ancienne référence n'est plus valable. Le bouton demande un motif
@@ -229,6 +249,12 @@ premier réflexe à avoir avant de charger des acquisitions réelles : sans cett
 silencieusement la lecture de l'essai (message discret dans la ligne d'état,
 sous les boutons).
 
+Les noms de voies sont écrits **échappés** : un signal appelé `Couple: roue G`,
+`*CRoue_G` ou `Couple #1 G` — tout ce que YAML lirait comme de la syntaxe — se
+relit à l'identique au lieu de rendre `config.yaml` illisible. Et si le fichier
+est abîmé par ailleurs, l'application ouvre une fenêtre nommant le fichier et
+l'erreur, au lieu de mourir sur une trace Python.
+
 ## Jeu de démonstration
 
 `donnees_demo/generateur.py` produit 30 essais MF4 sur une boucle d'essai
@@ -242,15 +268,18 @@ jusqu'à ~500 N·m) :
 * essai 18 : valeur aberrante isolée (≈ 9 σ).
 
 La campagne est calée sur la date du jour et le générateur inscrit, s'il n'y en
-a aucun, un étalonnage de démonstration dans la fiche de vie — sinon la tuile
-« jours avant échéance » resterait vide.
+a aucun, un étalonnage de démonstration dans la fiche de vie **du capteur
+DEMO** — celui-là même sur lequel le bouton bascule, sinon l'étalonnage et les
+trente essais atterrissent sur deux capteurs différents et la tuile « jours
+avant échéance » reste vide.
 
-Ce qu'on observe : verdict **Vigilance**, dérive détectée à l'essai 18,
-« Écart gauche/droite de +5,7 N·m : dérive de la voie gauche ».
+Ce qu'on observe : verdict **Vigilance**, « Dérive naissante détectée à l'essai
+n° 18 du 16/07/2026 », puis « Écart gauche/droite de +5,7 N·m : dérive de la
+voie gauche », et 90 jours avant l'échéance d'étalonnage.
 
 ## Notice technique
 
-`documentation/Vigie_Couple_notice_technique.pdf` — 13 pages : le principe, la
+`documentation/Vigie_Couple_notice_technique.pdf` — 16 pages : le principe, la
 logique de calcul détaillée (chaîne de traitement, référence robuste, CUSUM,
 EWMA, verdict, discrimination), et le rôle exact de chaque bouton de
 l'interface. Régénérable par `python documentation/notice.py` ; les seuils
@@ -263,12 +292,15 @@ désynchroniser du code.
 python -m pytest tests -q
 ```
 
-24 tests sur le cœur de calcul uniquement (aucun test d'interface) : délai de
+37 cas de test (31 fonctions, dont une paramétrée sur sept noms de voie) sur le cœur
+de calcul uniquement — aucun test d'interface : délai de
 détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
 comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
-de σ₀ à une valeur aberrante, les cinq branches de la discrimination, et le
+de σ₀ à une valeur aberrante, les cinq branches de la discrimination, le
 verdict d'une fenêtre isolée avec son échelle propre, la fusion des imports
-successifs sans doublon ni perte, et la remise à zéro des cartes à une rupture.
+successifs sans doublon ni perte, la remise à zéro des cartes à une rupture,
+les deux échelles du couple estimé, la relecture du mappage quel que soit le
+nom de voie écrit, et la mise à jour — non l'écrasement — de la fiche de vie.
 
 ---
 
@@ -323,7 +355,7 @@ tests/test_detection.py
 donnees_demo/generateur.py
 ```
 
-Onze modules d'application, environ 2 460 lignes dont l'essentiel de code
+11 modules d'application, 3562 lignes dont l'essentiel de code
 effectif : le reste est constitué des commentaires et docstrings en français.
 Le périmètre a dépassé les 1 500 lignes visées au départ, par ajouts demandés
 après la première livraison (mappage des voies, visualisation d'essai).

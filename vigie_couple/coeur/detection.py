@@ -165,6 +165,26 @@ class Analyse:
         """Le segment en cours : celui sur lequel porte le verdict."""
         return self.segments[-1] if self.segments else Segment(0, len(self.essais))
 
+    def segment_pour(self, indice: int) -> Segment:
+        """Le segment auquel appartient un essai donné.
+
+        Un essai antérieur à une rupture doit être jugé sur la référence de son
+        époque : celle du segment en cours ne le concerne pas.
+        """
+        for segment in self.segments:
+            if segment.debut <= indice < segment.fin:
+                return segment
+        return self.segment_courant
+
+    def indice_de(self, essai: IndicateursEssai) -> int | None:
+        """Rang d'un essai dans la série, reconnu par son empreinte ou son nom."""
+        for rang, autre in enumerate(self.essais):
+            if autre is essai or (essai.empreinte and autre.empreinte == essai.empreinte):
+                return rang
+            if not essai.empreinte and autre.nom == essai.nom:
+                return rang
+        return None
+
     @property
     def echelle_fenetre(self) -> float:
         """Écart-type attendu d'une fenêtre isolée face à la référence μ₀.
@@ -456,7 +476,16 @@ def _premiere_depuis(alarmes: np.ndarray, debut: int) -> int | None:
 def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
              cusum: ResultatCusum, ewma: ResultatEwma,
              segment: Segment) -> Verdict:
-    """Verdict du segment en cours. L'ordre des cas compte."""
+    """Verdict du segment en cours. L'ordre des cas compte.
+
+    « Non conforme » porte sur **tout le segment**, et désigne le plus ancien
+    dépassement : au-delà de l'écart maximal admissible, la mesure n'est pas
+    exploitable, et tout ce qui a été mesuré depuis est à revalider. Le verdict
+    ne redevient donc pas vert de lui-même quand les essais suivants sont sains
+    — c'est voulu. Deux sorties, toutes deux explicites : retirer les essais en
+    cause de la campagne, ou déclarer une rupture de suivi après réétalonnage,
+    ce qui ouvre un segment neuf.
+    """
     n = segment.taille
 
     # Non conforme d'abord : c'est un critère absolu, qui ne demande aucune
@@ -470,8 +499,8 @@ def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
         if depasse or zero_majeur:
             return Verdict(
                 "non_conforme", "Non conforme", "✕",
-                "Mesure non exploitable. Revalider les essais depuis le "
-                f"{date_courte(essai.date)}.", i)
+                f"Mesure non exploitable à l'essai n° {i + 1}. Revalider les "
+                f"essais depuis le {date_courte(essai.date)}.", i)
 
     # « En attente » ne concerne que le tout début : après une rupture, même
     # sans aucun essai, c'est bien une référence qui se reconstitue.
@@ -504,7 +533,8 @@ def _verdict(essais: list[IndicateursEssai], reglages: Reglages,
         i = min(alarmes)
         return Verdict(
             "vigilance", "Vigilance", "!",
-            f"Dérive naissante détectée à l'essai du {date_courte(essais[i].date)}. "
+            f"Dérive naissante détectée à l'essai n° {i + 1} du "
+            f"{date_courte(essais[i].date)}. "
             "Étalonnage de vérification à programmer.", i)
 
     return Verdict("conforme", "Conforme", "✔",

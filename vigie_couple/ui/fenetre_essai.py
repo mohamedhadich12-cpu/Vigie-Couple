@@ -29,6 +29,22 @@ OPERATIONS = {
 }
 
 
+def reference_de_l_essai(detail: DetailEssai, analyse: Analyse | None):
+    """Référence (μ₀, échelle d'une fenêtre) du segment auquel l'essai appartient.
+
+    Un essai antérieur à une rupture de suivi se juge sur la référence de son
+    époque : celle du segment en cours ne le concerne pas, et le surlignage
+    serait calculé contre un μ₀ qui n'a jamais été le sien.
+    """
+    if analyse is None:
+        return None
+    indice = analyse.indice_de(detail.indicateurs)
+    if indice is None:
+        return analyse.mu0, analyse.echelle_fenetre
+    segment = analyse.segment_pour(indice)
+    return segment.mu0, segment.echelle_fenetre
+
+
 def zones_par_statut(detail: DetailEssai, analyse: Analyse | None) -> list[tuple]:
     """Fusionne les fenêtres voisines de même verdict en plages continues.
 
@@ -37,11 +53,12 @@ def zones_par_statut(detail: DetailEssai, analyse: Analyse | None) -> list[tuple
     """
     if not detail.fenetres:
         return []
-    if analyse is None:
+    reference = reference_de_l_essai(detail, analyse)
+    if reference is None:
         statuts = ["conforme"] * len(detail.fenetres)
     else:
-        echelle = analyse.echelle_fenetre
-        statuts = [statut_fenetre(r, analyse.mu0, echelle, analyse.reglages)
+        mu0, echelle = reference
+        statuts = [statut_fenetre(r, mu0, echelle, analyse.reglages)
                    for r in detail.residus_fenetres]
     t = detail.t
     plages, debut, courant = [], detail.fenetres[0].start, statuts[0]
@@ -60,7 +77,8 @@ class FenetreEssai(QtWidgets.QDialog):
     """Un seul graphique à la fois, choisi par trois onglets discrets."""
 
     def __init__(self, detail: DetailEssai, analyse: Analyse | None,
-                 mode: str = "clair", stockage=None, parent=None):
+                 mode: str = "clair", stockage=None, parent=None,
+                 numero: int | None = None):
         super().__init__(parent)
         self.detail = detail
         self.analyse = analyse
@@ -69,11 +87,15 @@ class FenetreEssai(QtWidgets.QDialog):
         self._cache: dict[str, tuple] = {}   # voies du tracé libre déjà lues
         self._voies_fichier: list[str] = []
         indicateurs = detail.indicateurs
-        self.setWindowTitle(f"Essai {indicateurs.nom}")
+        # Le numéro d'abord : c'est celui que citent le verdict et le tableau
+        # de la campagne, donc celui par lequel on désigne un essai à l'oral.
+        rang = f"Essai n° {numero} — " if numero else "Essai "
+        self.setWindowTitle(f"{rang}{indicateurs.nom}")
         self.resize(960, 640)
 
         disposition = theme.marges(QtWidgets.QVBoxLayout(self), theme.MARGE)
-        disposition.addWidget(theme.etiquette(indicateurs.nom, "titre"))
+        disposition.addWidget(theme.etiquette(
+            f"{rang}{indicateurs.nom}" if numero else indicateurs.nom, "titre"))
         disposition.addWidget(theme.etiquette(self._resume(), "secondaire"))
         disposition.addSpacing(theme.ESPACE)
 
@@ -237,11 +259,12 @@ class FenetreEssai(QtWidgets.QDialog):
                 "Temps (s)", "t = {:.1f} s")
             centres = np.array([float(t[(f.start + f.stop) // 2])
                                 for f in detail.fenetres])
-            if self.analyse is not None and centres.size:   # bande d'une fenêtre
-                demi = 1.96 * self.analyse.echelle_fenetre
-                self.graphique.bande(centres,
-                                     np.full(centres.size, self.analyse.mu0 - demi),
-                                     np.full(centres.size, self.analyse.mu0 + demi),
+            reference = reference_de_l_essai(detail, self.analyse)
+            if reference is not None and centres.size:      # bande d'une fenêtre
+                mu0, echelle = reference
+                demi = 1.96 * echelle
+                self.graphique.bande(centres, np.full(centres.size, mu0 - demi),
+                                     np.full(centres.size, mu0 + demi),
                                      c["texte_secondaire"])
             self.graphique.courbe(centres, np.array(detail.residus_fenetres),
                                   c["serie1"])
@@ -356,9 +379,13 @@ class FenetreEssai(QtWidgets.QDialog):
         cibles = [self.graphique] + ([self.ecart] if self.ecart.isVisible() else [])
         for debut, fin, statut in plages:
             compte[statut] += 1
-            couleur = (theme.couleurs(self._mode)["grille"] if statut == "conforme"
-                       else theme.couleur_statut(statut))
-            opacite = 70 if statut == "conforme" else 60
+            # Les trois zones parlent la même langue que le verdict : vert,
+            # orange, rouge. Le gris neutre d'origine se confondait avec la
+            # grille du graphique et ne se voyait pas. Le vert est adouci
+            # parce qu'il couvre l'essentiel d'un essai sain, là où l'orange
+            # et le rouge ne marquent que des exceptions à repérer vite.
+            couleur = theme.couleur_statut(statut)
+            opacite = 38 if statut == "conforme" else 70
             for cible in cibles:
                 cible.zone(debut, fin, couleur, opacite)
         if not plages:
@@ -368,7 +395,7 @@ class FenetreEssai(QtWidgets.QDialog):
             return
         # Toujours un libellé texte : la couleur seule ne porte jamais le sens.
         self.legende_zones.setText(
-            f"Fond gris : {compte['conforme']} plages retenues et conformes.  ·  "
+            f"Fond vert : {compte['conforme']} plages retenues et conformes.  ·  "
             f"Fond orange : {compte['vigilance']} plages hors bande d'accord "
             "(±1,96 σ₀).  ·  "
             f"Fond rouge : {compte['non_conforme']} plages au-delà de l'écart "

@@ -96,6 +96,7 @@ class EcranFiche(QtWidgets.QWidget):
     """Historique persistant d'un capteur, lu et écrit dans le fichier SQLite."""
 
     suivi_reinitialise = QtCore.pyqtSignal()
+    capteur_modifie = QtCore.pyqtSignal(int)
 
     def __init__(self, stockage: Stockage, capteur_id: int, config: dict,
                  image_residu=None, parent=None):
@@ -182,9 +183,29 @@ class EcranFiche(QtWidgets.QWidget):
 
     # --- lecture et écriture ---
     def _enregistrer_identification(self):
-        infos = {cle: champ.text() for cle, champ in self.champs.items()}
-        if infos.get("numero_serie"):
-            self.capteur_id = self.stockage.capteur(infos)
+        """Corrige l'identification du capteur affiché, sans en créer un second.
+
+        Cet écran ne montre que quatre champs sur six : la mise à jour porte
+        donc sur ces quatre-là seulement, et l'identifiant du capteur sert de
+        clé. Passer par capteur(), qui identifie par numéro de série, créait un
+        capteur de plus dès qu'on corrigeait la série — l'historique restant
+        sur l'ancien — et effaçait au passage la date de mise en service et le
+        commentaire, absents du formulaire.
+        """
+        infos = {cle: champ.text().strip() for cle, champ in self.champs.items()}
+        if not infos.get("numero_serie"):
+            self.etat.setText("Le numéro de série identifie le capteur : il est requis.")
+            self.rafraichir()
+            return
+        if self.stockage.infos_capteur(self.capteur_id) == {}:
+            return
+        if not self.stockage.modifier_capteur(self.capteur_id, infos):
+            self.etat.setText("Un autre capteur porte déjà ce numéro de série : "
+                              "modification annulée.")
+            self.rafraichir()
+            return
+        self.etat.setText("Identification enregistrée.")
+        self.capteur_modifie.emit(self.capteur_id)
 
     def rafraichir(self):
         """Recharge l'identification, l'usage et les deux historiques."""
@@ -228,9 +249,12 @@ class EcranFiche(QtWidgets.QWidget):
         """Alerte visuelle au-delà de 370 jours (plafond RTM ONU n° 21)."""
         dernier = self.stockage.dernier_etalonnage(self.capteur_id)
         ecoules, restants = jours_depuis(dernier), jours_restants(dernier)
-        if dernier is None:
+        if dernier is None or restants is None:
             statut, icone = "vigilance", "!"
-            texte = "Aucun étalonnage enregistré : renseigner le dernier certificat."
+            texte = ("Aucun étalonnage enregistré : renseigner le dernier certificat."
+                     if dernier is None else
+                     f"Date d'étalonnage illisible (« {dernier} ») : la ressaisir "
+                     "pour rétablir le calcul de l'échéance.")
         elif restants < 0:
             statut, icone = "non_conforme", "✕"
             texte = (f"Étalonnage du {date_courte(dernier)} : {ecoules} jours écoulés, "

@@ -138,16 +138,20 @@ def seuil_etalonnage_demo():
 
     Sans lui, la tuile « jours avant échéance » de l'écran Surveillance reste
     vide : le jeu de démonstration doit se suffire à lui-même.
+
+    Il s'inscrit sur le **capteur de démonstration**, celui-là même sur lequel
+    le bouton bascule, et non sur le capteur de config.yaml : sinon l'étalonnage
+    et les trente essais atterrissent sur deux capteurs différents, et la tuile
+    reste vide malgré tout.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     try:
-        from vigie_couple.coeur.lecture_mf4 import charger_config
+        from vigie_couple.coeur.lecture_mf4 import CAPTEUR_DEMO
         from vigie_couple.coeur.stockage import Stockage
     except ImportError:
         return
-    config = charger_config()
     stockage = Stockage()
-    capteur = stockage.capteur(config.get("capteur", {}) or {})
+    capteur = stockage.capteur(CAPTEUR_DEMO)
     if stockage.dernier_etalonnage(capteur) is None:
         jour = date.today() - timedelta(days=280)   # échéance dans 90 jours
         stockage.ajouter_etalonnage(capteur, jour.isoformat(), 7.5, "CERT-2025-118")

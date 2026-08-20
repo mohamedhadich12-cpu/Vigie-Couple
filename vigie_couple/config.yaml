@@ -22,8 +22,8 @@ traitement:
   ecart_demande_max_nm: 120  # écart mesure/demande = intervention motricité
   lacet_max_degs: 3          # ligne droite, si la voie de lacet est disponible
   # true si couple_estime est le couple total de l'essieu (les deux roues
-  # additionnées) : il est alors ramené à l'échelle d'une roue avant toute
-  # comparaison. false s'il s'agit déjà d'une estimation par roue. À vérifier
+  # additionnées) : on lui compare alors la SOMME des deux voies. false s'il
+  # s'agit d'une estimation par roue : on lui compare leur MOYENNE. À vérifier
   # sur la documentation du calculateur — se tromper introduit un biais
   # artificiel d'un facteur ~2 sur la source « couple estimé ».
   couple_estime_total_essieu: true

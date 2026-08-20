@@ -37,12 +37,38 @@ MAPPAGE_DEMO = {
     "vitesse_lacet": "",
 }
 
+# Capteur du jeu de démonstration. Il vit ici, à côté du mappage, et non dans
+# l'interface : le générateur doit pouvoir l'atteindre sans importer Qt, sinon
+# l'étalonnage de démonstration s'inscrit sur le capteur de config.yaml et la
+# tuile « jours avant échéance » reste vide pendant la démonstration.
+CAPTEUR_DEMO = {
+    "reference": "Capteur de démonstration",
+    "numero_serie": "DEMO",
+    "arbre": "Gauche",
+    "vehicule": "Mule fictive",
+    "commentaire": "Données synthétiques produites par donnees_demo/generateur.py. "
+                   "Ne correspond à aucun capteur réel.",
+}
+
 
 def charger_config(chemin: str | Path | None = None) -> dict:
     """Charge config.yaml. Les chemins sont résolus de façon portable (Windows compris)."""
     fichier = Path(chemin) if chemin else CHEMIN_CONFIG
     with open(fichier, "r", encoding="utf-8") as flux:
         return yaml.safe_load(flux) or {}
+
+
+def scalaire_yaml(valeur: str) -> str:
+    """Rend un nom de voie sous une forme que YAML relira à l'identique.
+
+    Les noms de signaux d'une acquisition réelle contiennent couramment « : »,
+    « # », « * » ou « @ », qui sont de la syntaxe pour YAML. Écrits tels quels,
+    ils rendent config.yaml illisible et l'application ne redémarre plus. Le
+    guillemet double est le seul style YAML qui accepte des échappements, donc
+    n'importe quel nom.
+    """
+    echappe = str(valeur).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{echappe}"'
 
 
 def enregistrer_mappage(chemin_config: str | Path, mappage: dict[str, str]) -> None:
@@ -54,7 +80,7 @@ def enregistrer_mappage(chemin_config: str | Path, mappage: dict[str, str]) -> N
     chemin_config = Path(chemin_config)
     texte = chemin_config.read_text(encoding="utf-8")
     for cle, valeur in mappage.items():
-        rendu = f'"{valeur}"' if valeur == "" else valeur
+        rendu = scalaire_yaml(valeur)
         motif = re.compile(rf"(?m)^(\s*{re.escape(cle)}:).*$")
         texte, nb = motif.subn(lambda m, r=rendu: f"{m.group(1)} {r}", texte, count=1)
         if nb == 0:   # clé absente du fichier : on l'ajoute à la fin de « signaux: »
@@ -159,25 +185,37 @@ def _fenetres(masque: np.ndarray, taille: int) -> list[slice]:
     return fenetres
 
 
-def corriger_couple_estime(voies: dict, param: dict) -> None:
-    """Ramène couple_estime à l'échelle d'une roue si c'est un couple d'essieu.
+def comparaison_couple_estime(gauche, droit, estime, total_essieu: bool):
+    """Grandeurs à comparer au couple estimé, à l'échelle où il est exprimé.
 
-    Le résidu compare cette voie à la moyenne — voire à chaque voie
-    individuelle, dans la discrimination — gauche/droite, en supposant une
-    estimation *par roue*. Certains calculateurs estiment au contraire le
-    couple *total de l'essieu* (les deux roues additionnées) : sans cette
-    correction, la comparaison porterait sur des grandeurs à une échelle
-    différente d'un facteur ~2, et produirait un biais artificiel sans
-    rapport avec une vraie dérive.
+    Le calculateur peut estimer le couple *total de l'essieu* — les deux roues
+    additionnées — ou le couple *d'une roue*. On compare toujours à l'échelle
+    du signal estimé, sans jamais le remettre à l'échelle lui-même :
+
+    * essieu total : c'est la **somme** des deux voies qui lui fait face ;
+    * par roue     : c'est leur **moyenne**.
+
+    Comparer une moyenne à un total, ou l'inverse, produirait un biais
+    artificiel d'un facteur ~2 sans rapport avec une vraie dérive.
+
+    Rend (mesure, part_par_roue) : « mesure − estimé » est le résidu de la
+    source « couple estimé », et « voie − part_par_roue » l'écart d'une seule
+    voie, dont la discrimination se sert pour désigner la voie suspecte.
     """
-    if "couple_estime" in voies and param.get("couple_estime_total_essieu", False):
-        voies["couple_estime"] = voies["couple_estime"] * 0.5
+    if total_essieu:
+        return gauche + droit, 0.5 * estime
+    return 0.5 * (gauche + droit), estime
 
 
 def _zero(voies: dict, phases: np.ndarray, fin: bool) -> float | None:
-    """Résidu gauche − droite relevé à couple nul, avant ou après essai."""
+    """Résidu gauche − droite relevé à couple nul, avant ou après essai.
+
+    Un essai qui ne comporte qu'une seule plage d'arrêt ne fournit pas de zéro
+    de fin : rendre deux fois le même relevé afficherait une dérive intra-essai
+    nulle par construction, ce qui se lirait à tort comme un zéro stable.
+    """
     blocs = _blocs(phases == PHASES.index("arrêt"))
-    if not blocs:
+    if not blocs or (fin and len(blocs) < 2):
         return None
     bloc = blocs[-1] if fin else blocs[0]
     longueur = bloc.stop - bloc.start
@@ -233,7 +271,6 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
     with MDF(chemin) as mdf:
         t, voies = _voies(mdf, config.get("signaux", {}) or {}, frequence)
         debut = mdf.header.start_time
-    corriger_couple_estime(voies, param)
 
     phases = segmenter(t, voies, param)
     masque = _masque_exploitable(t, voies, phases, param)
@@ -242,15 +279,19 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
 
     gauche, droit = voies["couple_gauche"], voies["couple_droit"]
     estime = voies.get("couple_estime")
+    mesure = part_roue = None
+    if estime is not None:
+        mesure, part_roue = comparaison_couple_estime(
+            gauche, droit, estime,
+            bool(param.get("couple_estime_total_essieu", False)))
     r_voie, r_estime, niveau, g_est, d_est = [], [], [], [], []
     for f in fenetres:
         r_voie.append(float(np.mean(gauche[f] - droit[f])))
-        moyen = 0.5 * (gauche[f] + droit[f])
-        niveau.append(float(np.mean(moyen)))
+        niveau.append(float(np.mean(0.5 * (gauche[f] + droit[f]))))
         if estime is not None:
-            r_estime.append(float(np.mean(moyen - estime[f])))
-            g_est.append(float(np.mean(gauche[f] - estime[f])))
-            d_est.append(float(np.mean(droit[f] - estime[f])))
+            r_estime.append(float(np.mean(mesure[f] - estime[f])))
+            g_est.append(float(np.mean(gauche[f] - part_roue[f])))
+            d_est.append(float(np.mean(droit[f] - part_roue[f])))
 
     zero_avant = _zero(voies, phases, fin=False)
     zero_apres = _zero(voies, phases, fin=True)
