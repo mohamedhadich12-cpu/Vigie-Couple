@@ -389,7 +389,6 @@ class EcranCampagne(QtWidgets.QWidget):
         self._chargeur.essai_lu.connect(self._ajouter)
         self._chargeur.echec.connect(self._signaler)
         self._chargeur.fini.connect(self._terminer)
-        self._chargeur.finished.connect(self._chargeur.deleteLater)
         self._chargeur.start()
 
     def _activer(self, actif: bool):
@@ -413,6 +412,17 @@ class EcranCampagne(QtWidgets.QWidget):
         self._doublons += doublons
 
     def _terminer(self):
+        # On efface la référence Python dès que la suppression est programmée.
+        # La brancher sur le signal finished() du fil (comme avant) laissait
+        # self._chargeur pointer vers un objet C++ dont la destruction pouvait
+        # déjà avoir eu lieu au moment du clic suivant — une QFileDialog fait
+        # tourner sa propre boucle d'événements pendant qu'elle est ouverte, ce
+        # qui suffit à déclencher ce deleteLater() différé. Le second import
+        # levait alors RuntimeError sur self._chargeur.isRunning() avant même
+        # de commencer à lire quoi que ce soit, en silence : rien ne se passait.
+        if self._chargeur is not None:
+            self._chargeur.deleteLater()
+            self._chargeur = None
         self.progression.hide()
         self._activer(True)
         self._remplir_tableau()
