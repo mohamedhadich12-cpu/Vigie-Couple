@@ -244,6 +244,7 @@ class EcranCampagne(QtWidgets.QWidget):
             self.stockage.definir_preference("capteur_actif", self.capteur_id)
         self._remplir_tableau()
         self._actualiser_boutons()
+        self._etat_par_defaut()   # rien ne vient de se passer : le texte générique convient
         self.capteur_change.emit(self.capteur_id if self.capteur_id is not None else -1)
         self.essais_charges.emit(list(self.essais))
 
@@ -271,7 +272,16 @@ class EcranCampagne(QtWidgets.QWidget):
             self.rafraichir_capteurs(selectionner=self.capteur_id)
 
     def _actualiser_boutons(self):
-        """Aucun import sans capteur : c'est ce qui garantit le rattachement."""
+        """Aucun import sans capteur : c'est ce qui garantit le rattachement.
+
+        Ne touche jamais à la ligne d'état : un appelant qui vient d'écrire un
+        message précis (import terminé, échec de lecture, essais retirés…) ne
+        doit pas le voir aussitôt recouvert par un texte générique. C'était le
+        cas ici — un import qui échouait sur un capteur encore vide affichait
+        un instant « Aucun essai exploitable… Vérifiez le mappage des voies »,
+        puis cette méthode l'écrasait par « Aucun essai chargé pour ce
+        capteur », qui ne ressemble à rien d'anormal.
+        """
         pret = self.capteur_id is not None
         for bouton in (self.bouton_fichiers, self.bouton_dossier):
             bouton.setEnabled(pret)
@@ -280,7 +290,14 @@ class EcranCampagne(QtWidgets.QWidget):
         self.bouton_voir.setEnabled(bool(self.tableau.selectedItems()) and pret)
         self.bouton_retirer.setEnabled(bool(self._lignes_cochees()))
         self.bouton_vider.setEnabled(bool(self.essais))
-        if not pret:
+
+    def _etat_par_defaut(self):
+        """Message par défaut, quand rien de plus précis n'est à annoncer.
+
+        Réservé aux moments où aucune opération ne vient de se conclure : au
+        démarrage, et quand on change de capteur suivi.
+        """
+        if self.capteur_id is None:
             self.etat.setText("Sélectionnez ou créez un capteur avant d'importer "
                               "des essais.")
         elif not self.essais:
