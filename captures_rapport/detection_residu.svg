@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1000" width="1800" height="1000" font-family="Calibri, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2E74B5"/>
+    </marker>
+  </defs>
+
+  <!-- Fond -->
+  <rect x="0" y="0" width="1800" height="1000" fill="#FFFFFF"/>
+
+  <!-- Titre -->
+  <text x="900" y="34" text-anchor="middle" font-size="28" font-weight="bold" fill="#1F3864">Schéma de principe — Détection par analyse de résidu</text>
+  <text x="900" y="60" text-anchor="middle" font-size="15" fill="#1A1A1A">Zones 1 à 4 : détection statistique sur le segment courant &#8212; Zone 5 : diagnostic (isolation), déclenché en cas d'alarme</text>
+
+  <!-- ===================== BANDE DETECTION ===================== -->
+  <rect x="20" y="90" width="1760" height="500" rx="10" fill="none" stroke="#2E74B5" stroke-width="2" stroke-dasharray="10,6"/>
+  <text x="40" y="115" font-size="19" font-weight="bold" fill="#1F3864">DÉTECTION</text>
+
+  <!-- En-têtes de zone -->
+  <text x="220" y="140" text-anchor="middle" font-size="17" font-weight="bold" fill="#1F3864">1. Sources de comparaison (entrée)</text>
+  <text x="565" y="140" text-anchor="middle" font-size="17" font-weight="bold" fill="#1F3864">2. Génération du résidu</text>
+  <text x="940" y="140" text-anchor="middle" font-size="17" font-weight="bold" fill="#1F3864">3. Évaluation statistique</text>
+  <text x="1340" y="140" text-anchor="middle" font-size="17" font-weight="bold" fill="#1F3864">4. Décision</text>
+
+  <!-- Zone 1 : sources, empilées par fiabilité décroissante -->
+  <g>
+    <rect x="60" y="165" width="320" height="100" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="220" y="195" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">&#9312; Voie opposée (défaut)</text>
+    <text x="220" y="222" text-anchor="middle" font-size="14" fill="#1A1A1A">Couple gauche &#8722; couple droit</text>
+
+    <rect x="60" y="285" width="320" height="100" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="220" y="313" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">&#9313; Zéro à couple nul</text>
+    <text x="220" y="337" text-anchor="middle" font-size="14" fill="#1A1A1A">Écart gauche/droite à l'arrêt,</text>
+    <text x="220" y="356" text-anchor="middle" font-size="14" fill="#1A1A1A">avant et après essai</text>
+
+    <rect x="60" y="405" width="320" height="100" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="220" y="433" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">&#9314; Couple estimé</text>
+    <text x="220" y="457" text-anchor="middle" font-size="14" fill="#1A1A1A">Moyenne(G,D) &#8722; couple</text>
+    <text x="220" y="476" text-anchor="middle" font-size="14" fill="#1A1A1A">estimé par le calculateur</text>
+  </g>
+
+  <!-- Note de portée (segment courant) -->
+  <rect x="40" y="512" width="380" height="76" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="230" y="530" text-anchor="middle" font-size="12.5" font-style="italic" fill="#1A1A1A">Note &#8212; Le centrage (&#956;&#8320;, &#963;&#8320;) et la décision</text>
+  <text x="230" y="547" text-anchor="middle" font-size="12.5" font-style="italic" fill="#1A1A1A">portent sur le segment en cours : après une</text>
+  <text x="230" y="564" text-anchor="middle" font-size="12.5" font-style="italic" fill="#1A1A1A">réinitialisation du suivi, les essais antérieurs</text>
+  <text x="230" y="581" text-anchor="middle" font-size="12.5" font-style="italic" fill="#1A1A1A">ne comptent plus pour la décision.</text>
+
+  <!-- Zone 2 : génération du résidu -->
+  <rect x="430" y="245" width="270" height="170" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="565" y="273" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Calcul par essai</text>
+  <text x="565" y="300" text-anchor="middle" font-size="14" fill="#1A1A1A">Moyennage sur fenêtres</text>
+  <text x="565" y="319" text-anchor="middle" font-size="14" fill="#1A1A1A">glissantes de 2 s</text>
+  <text x="565" y="348" text-anchor="middle" font-size="14" fill="#1A1A1A">&#8594; réduction à un seul</text>
+  <text x="565" y="367" text-anchor="middle" font-size="14" fill="#1A1A1A">indicateur : le biais</text>
+
+  <!-- Flèches sources -> résidu -->
+  <path d="M380,215 L410,215 L410,330 L430,330" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M380,335 L430,335" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M380,455 L410,455 L410,340 L430,340" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Zone 3 : référence + CUSUM + EWMA -->
+  <rect x="730" y="165" width="420" height="70" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+  <text x="940" y="188" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">Référence robuste (&#956;&#8320;, &#963;&#8320;)</text>
+  <text x="940" y="208" text-anchor="middle" font-size="13" fill="#1A1A1A">estimée sur les 10 premiers essais du segment</text>
+
+  <rect x="730" y="260" width="420" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="940" y="286" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Carte CUSUM</text>
+  <text x="940" y="308" text-anchor="middle" font-size="13.5" fill="#1A1A1A">Somme cumulée des écarts</text>
+  <text x="940" y="326" text-anchor="middle" font-size="13.5" fill="#1A1A1A">au centrage robuste (&#956;&#8320;, &#963;&#8320;)</text>
+
+  <rect x="730" y="375" width="420" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="940" y="401" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Carte EWMA</text>
+  <text x="940" y="423" text-anchor="middle" font-size="13.5" fill="#1A1A1A">Moyenne mobile pondérée</text>
+  <text x="940" y="441" text-anchor="middle" font-size="13.5" fill="#1A1A1A">exponentiellement, même référence</text>
+
+  <!-- Flèche résidu -> CUSUM / EWMA -->
+  <path d="M700,330 L715,330 L715,305 L730,305" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M700,330 L715,330 L715,420 L730,420" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Flèches référence (pointillées) -> CUSUM / EWMA -->
+  <path d="M760,235 L760,260" fill="none" stroke="#2E74B5" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <path d="M1150,200 L1200,200 L1200,420 L1150,420" fill="none" stroke="#2E74B5" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+
+  <!-- Zone 4 : décision (losange) -->
+  <polygon points="1340,250 1430,330 1340,410 1250,330" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="1340" y="320" text-anchor="middle" font-size="14.5" font-weight="bold" fill="#1F3864">Décision</text>
+  <text x="1340" y="338" text-anchor="middle" font-size="11.5" fill="#1A1A1A">(seuils CUSUM/EWMA,</text>
+  <text x="1340" y="352" text-anchor="middle" font-size="11.5" fill="#1A1A1A">tolérance absolue)</text>
+
+  <path d="M940,235 L940,250" fill="none" stroke="#2E74B5" stroke-width="0" opacity="0"/>
+  <path d="M1150,308 L1250,320" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1150,420 L1250,342" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Issues de la décision -->
+  <rect x="1470" y="160" width="300" height="96" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="1620" y="188" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Conforme</text>
+  <text x="1620" y="211" text-anchor="middle" font-size="13" fill="#1A1A1A">Aucun seuil franchi,</text>
+  <text x="1620" y="229" text-anchor="middle" font-size="13" fill="#1A1A1A">écart &lt; tolérance</text>
+
+  <rect x="1470" y="282" width="300" height="96" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="1620" y="310" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Vigilance</text>
+  <text x="1620" y="333" text-anchor="middle" font-size="13" fill="#1A1A1A">Une carte (CUSUM ou EWMA)</text>
+  <text x="1620" y="351" text-anchor="middle" font-size="13" fill="#1A1A1A">a franchi son seuil</text>
+
+  <rect x="1470" y="404" width="300" height="96" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+  <text x="1620" y="432" text-anchor="middle" font-size="16" font-weight="bold" fill="#1F3864">Non conforme</text>
+  <text x="1620" y="455" text-anchor="middle" font-size="13" fill="#1A1A1A">Écart au-delà de la</text>
+  <text x="1620" y="473" text-anchor="middle" font-size="13" fill="#1A1A1A">tolérance absolue</text>
+
+  <path d="M1430,290 L1470,208" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1430,330 L1470,330" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1430,370 L1470,452" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- État particulier : référence en cours de constitution -->
+  <rect x="1470" y="510" width="300" height="76" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="1620" y="531" text-anchor="middle" font-size="14" font-weight="bold" fill="#1F3864">Référence en cours de</text>
+  <text x="1620" y="548" text-anchor="middle" font-size="14" font-weight="bold" fill="#1F3864">constitution</text>
+  <text x="1620" y="566" text-anchor="middle" font-size="12" fill="#1A1A1A">moins de 10 essais &#8594; décision différée</text>
+
+  <path d="M1150,200 L1200,200 L1200,548 L1470,548" fill="none" stroke="#2E74B5" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+
+  <!-- ===================== BANDE DIAGNOSTIC (ISOLATION) ===================== -->
+  <rect x="20" y="630" width="1760" height="350" rx="10" fill="none" stroke="#2E74B5" stroke-width="2" stroke-dasharray="10,6"/>
+  <text x="40" y="655" font-size="19" font-weight="bold" fill="#1F3864">DIAGNOSTIC — ISOLATION</text>
+  <text x="900" y="678" text-anchor="middle" font-size="17" font-weight="bold" fill="#1F3864">5. Séquence des tests de discrimination (en cas d'alarme)</text>
+
+  <!-- Flèche d'alarme depuis la décision -->
+  <path d="M1620,500 L1620,610 L220,610 L220,700" fill="none" stroke="#2E74B5" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <rect x="770" y="597" width="360" height="24" fill="#FFFFFF"/>
+  <text x="950" y="614" text-anchor="middle" font-size="13" font-style="italic" fill="#1A1A1A">en cas d'alarme (vigilance ou non conforme)</text>
+
+  <!-- Tests séquentiels -->
+  <g font-size="14">
+    <rect x="60" y="700" width="320" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="220" y="750" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">&#9312; Écart gauche/droite</text>
+
+    <rect x="400" y="700" width="320" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="560" y="750" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">&#9313; Déplacement du zéro</text>
+
+    <rect x="740" y="700" width="320" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="900" y="750" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">&#9314; Corrélation thermique</text>
+
+    <rect x="1080" y="700" width="320" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="1240" y="750" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">&#9315; Corrélation au couple</text>
+
+    <rect x="1420" y="700" width="320" height="90" rx="8" fill="#EAF1F8" stroke="#2E74B5" stroke-width="2"/>
+    <text x="1580" y="742" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">&#9316; Aucun des</text>
+    <text x="1580" y="761" text-anchor="middle" font-size="15" font-weight="bold" fill="#1F3864">précédents</text>
+  </g>
+
+  <!-- flèches séquentielles entre tests -->
+  <path d="M380,745 L400,745" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M720,745 L740,745" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1060,745 L1080,745" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1400,745 L1420,745" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- conclusions -->
+  <g font-size="13.5" fill="#1A1A1A">
+    <rect x="60" y="830" width="320" height="90" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+    <text x="220" y="870" text-anchor="middle" font-weight="bold" fill="#1F3864">Dérive d'une voie identifiée</text>
+
+    <rect x="400" y="830" width="320" height="90" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+    <text x="560" y="870" text-anchor="middle" font-weight="bold" fill="#1F3864">Dérive de zéro confirmée</text>
+
+    <rect x="740" y="830" width="320" height="90" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+    <text x="900" y="870" text-anchor="middle" font-weight="bold" fill="#1F3864">Dérive thermique</text>
+
+    <rect x="1080" y="830" width="320" height="90" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+    <text x="1240" y="870" text-anchor="middle" font-weight="bold" fill="#1F3864">Dérive de sensibilité</text>
+
+    <rect x="1420" y="830" width="320" height="90" rx="8" fill="#FFFFFF" stroke="#2E74B5" stroke-width="2"/>
+    <text x="1580" y="870" text-anchor="middle" font-weight="bold" fill="#1F3864">Écart non expliqué</text>
+  </g>
+
+  <!-- flèches test -> conclusion -->
+  <path d="M220,790 L220,830" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M560,790 L560,830" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M900,790 L900,830" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1240,790 L1240,830" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M1580,790 L1580,830" fill="none" stroke="#2E74B5" stroke-width="2" marker-end="url(#arrow)"/>
+
+</svg>
