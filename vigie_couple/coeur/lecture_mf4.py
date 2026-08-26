@@ -23,6 +23,11 @@ CHEMIN_CONFIG = Path(__file__).resolve().parents[1] / "config.yaml"
 # Phases d'un essai, dans l'ordre d'affichage.
 PHASES = ("arrêt", "traction", "freinage récupératif", "transitoire")
 
+# Voies d'état : des grandeurs discrètes, pas des mesures continues. Elles sont
+# rééchantillonnées par maintien de la dernière valeur et comparées à une
+# valeur choisie par l'opérateur, jamais interpolées ni moyennées.
+VOIES_ETAT = ("rapport", "frein_stationnement")
+
 # Voies du jeu de démonstration. Elles sont fixées par donnees_demo/generateur.py
 # et ne doivent pas dépendre du mappage adapté aux acquisitions du site : sinon
 # la démonstration cesse de fonctionner dès qu'on configure ses propres voies.
@@ -35,6 +40,11 @@ MAPPAGE_DEMO = {
     "pedale": "AcP_rAcc_P_RTE",
     "temperature": "Temp_Capteur_G",
     "vitesse_lacet": "",
+    # Le générateur ne produit ni pente, ni rapport, ni frein de stationnement :
+    # les critères d'arrêt correspondants sont simplement sautés sur la démo.
+    "pente": "",
+    "rapport": "",
+    "frein_stationnement": "",
 }
 
 # Capteur du jeu de démonstration. Il vit ici, à côté du mappage, et non dans
@@ -71,20 +81,34 @@ def scalaire_yaml(valeur: str) -> str:
     return f'"{echappe}"'
 
 
-def enregistrer_mappage(chemin_config: str | Path, mappage: dict[str, str]) -> None:
+def _patcher_section(texte: str, valeurs: dict[str, str], section: str) -> str:
+    """Réécrit des clés dans le texte YAML, en les créant sous « section: » au besoin."""
+    for cle, valeur in valeurs.items():
+        rendu = scalaire_yaml(valeur)
+        motif = re.compile(rf"(?m)^(\s*{re.escape(cle)}:).*$")
+        texte, nb = motif.subn(lambda m, r=rendu: f"{m.group(1)} {r}", texte, count=1)
+        if nb == 0:   # clé absente du fichier : on l'ajoute en tête de sa section
+            texte = texte.replace(f"{section}:", f"{section}:\n  {cle}: {rendu}", 1)
+    return texte
+
+
+def enregistrer_mappage(chemin_config: str | Path, mappage: dict[str, str],
+                        traitement: dict[str, str] | None = None) -> None:
     """Réécrit les voies choisies dans config.yaml, sans toucher au reste du fichier.
 
     Un patch ciblé ligne à ligne plutôt qu'un ré-export YAML complet : les
     commentaires et la mise en forme du fichier sont préservés.
+
+    « traitement » porte les valeurs d'état qui accompagnent le mappage — la
+    valeur du rapport qui désigne le neutre, celle du frein de stationnement
+    qui désigne l'état serré. Elles vont dans la section « traitement », pas
+    dans « signaux » : ce sont des réglages, pas des noms de voies.
     """
     chemin_config = Path(chemin_config)
     texte = chemin_config.read_text(encoding="utf-8")
-    for cle, valeur in mappage.items():
-        rendu = scalaire_yaml(valeur)
-        motif = re.compile(rf"(?m)^(\s*{re.escape(cle)}:).*$")
-        texte, nb = motif.subn(lambda m, r=rendu: f"{m.group(1)} {r}", texte, count=1)
-        if nb == 0:   # clé absente du fichier : on l'ajoute à la fin de « signaux: »
-            texte = texte.replace("signaux:", f"signaux:\n  {cle}: {rendu}", 1)
+    texte = _patcher_section(texte, mappage, "signaux")
+    if traitement:
+        texte = _patcher_section(texte, traitement, "traitement")
     chemin_config.write_text(texte, encoding="utf-8")
 
 
@@ -105,9 +129,41 @@ def reglages_depuis_config(config: dict) -> Reglages:
 
 
 # --- Lecture et rééchantillonnage ---
-def _voies(mdf: MDF, noms: dict, frequence: float) -> tuple[np.ndarray, dict]:
-    """Rééchantillonne toutes les voies utiles sur une base de temps commune."""
-    brut = {}
+def _echantillons_etat(echantillons) -> np.ndarray:
+    """Voie d'état : numérique si elle l'est, texte sinon.
+
+    Un rapport de boîte ou un frein de stationnement arrive tantôt en valeurs
+    numériques brutes, tantôt déjà traduit par une table de valeurs du fichier
+    MF4 (« N », « P », « serré »). Les deux formes sont acceptées, et
+    comparées ensuite chacune à sa manière.
+    """
+    tableau = np.asarray(echantillons).ravel()
+    if tableau.dtype.kind in "fiub":
+        return tableau
+    return np.asarray([v.decode("latin-1", "replace") if isinstance(v, bytes) else str(v)
+                       for v in tableau])
+
+
+def _maintien(t: np.ndarray, ts: np.ndarray, echantillons: np.ndarray) -> np.ndarray:
+    """Rééchantillonne une voie d'état par maintien de la dernière valeur connue.
+
+    Surtout pas d'interpolation linéaire : entre la 2ᵉ et la 3ᵉ, un rapport
+    interpolé vaudrait « 2,4 », qui n'est pas un rapport. Le maintien d'ordre
+    zéro reproduit ce que fait réellement le calculateur entre deux trames.
+    """
+    indices = np.clip(np.searchsorted(ts, t, side="right") - 1,
+                      0, echantillons.size - 1)
+    return echantillons[indices]
+
+
+def _voies(mdf: MDF, noms: dict,
+           frequence: float) -> tuple[np.ndarray, dict, dict]:
+    """Rééchantillonne les voies utiles sur une base de temps commune.
+
+    Rend (temps, voies continues, voies d'état). Les voies d'état sont tenues
+    à part : elles ne s'interpolent pas, et peuvent être du texte.
+    """
+    brut, brut_etat = {}, {}
     for cle, nom in noms.items():
         if not nom:
             continue
@@ -115,17 +171,26 @@ def _voies(mdf: MDF, noms: dict, frequence: float) -> tuple[np.ndarray, dict]:
             signal = mdf.get(nom)
         except Exception:       # voie absente de cette acquisition
             continue
-        brut[cle] = (np.asarray(signal.timestamps, dtype=float),
-                     np.asarray(signal.samples, dtype=float))
+        temps = np.asarray(signal.timestamps, dtype=float)
+        if cle in VOIES_ETAT:
+            brut_etat[cle] = (temps, _echantillons_etat(signal.samples))
+            continue
+        try:
+            brut[cle] = (temps, np.asarray(signal.samples, dtype=float))
+        except (ValueError, TypeError):   # voie non numérique : inexploitable ici
+            continue
     if "couple_gauche" not in brut or "couple_droit" not in brut:
         raise ValueError("voies de couple gauche et droite introuvables")
 
-    debut = max(t[0] for t, _ in brut.values())
-    fin = min(t[-1] for t, _ in brut.values())
+    toutes = list(brut.values()) + list(brut_etat.values())
+    debut = max(t[0] for t, _ in toutes)
+    fin = min(t[-1] for t, _ in toutes)
     if fin <= debut:
         raise ValueError("les voies ne se recouvrent pas dans le temps")
     t = np.arange(debut, fin, 1.0 / frequence)
-    return t, {cle: np.interp(t, ts, xs) for cle, (ts, xs) in brut.items()}
+    voies = {cle: np.interp(t, ts, xs) for cle, (ts, xs) in brut.items()}
+    etats = {cle: _maintien(t, ts, xs) for cle, (ts, xs) in brut_etat.items()}
+    return t, voies, etats
 
 
 def segmenter(t: np.ndarray, voies: dict, param: dict) -> np.ndarray:
@@ -207,14 +272,74 @@ def comparaison_couple_estime(gauche, droit, estime, total_essieu: bool):
     return 0.5 * (gauche + droit), estime
 
 
-def _zero(voies: dict, phases: np.ndarray, fin: bool) -> float | None:
+def valeur_etat(valeurs: np.ndarray, choix) -> np.ndarray | None:
+    """Compare une voie d'état à la valeur désignée par l'opérateur.
+
+    Le choix vient d'une liste déroulante, donc sous forme de texte : on
+    compare numériquement quand la voie est numérique, littéralement sinon.
+    Rend None quand la comparaison n'a pas de sens, auquel cas le critère
+    correspondant est simplement sauté.
+    """
+    texte = str(choix if choix is not None else "").strip()
+    if not texte or valeurs is None or not len(valeurs):
+        return None
+    if valeurs.dtype.kind in "fiub":
+        try:
+            return np.isclose(valeurs.astype(float), float(texte.replace(",", ".")))
+        except ValueError:      # voie numérique, choix textuel : incomparable
+            return None
+    return np.asarray([str(v).strip() == texte for v in valeurs])
+
+
+def masque_arret_zero(etats: dict, voies: dict, phases: np.ndarray,
+                      param: dict) -> np.ndarray:
+    """Plages d'arrêt réellement exploitables pour un relevé de zéro.
+
+    Être immobile ne suffit pas. **À l'arrêt dans une pente, un rapport engagé
+    retient le véhicule par la transmission** : l'arbre de roue travaille en
+    torsion et le couple n'est pas nul, alors que la vitesse l'est. Relever le
+    zéro là reviendrait à prendre une charge bien réelle pour une dérive du
+    capteur, et à polluer la référence de toute la campagne.
+
+    Trois critères, chacun ignoré si sa voie n'est pas mappée, ce qui laisse le
+    comportement inchangé sur une installation qui ne les fournit pas :
+
+    * le **rapport** doit être au neutre : sans cela la transmission peut
+      transmettre un couple de retenue, quelle que soit la pente ;
+    * la **pente** doit être faible, **ou** le **frein de stationnement**
+      serré, auquel cas c'est lui qui retient le véhicule et non la ligne de
+      transmission. Si une seule des deux voies est mappée, elle décide seule.
+    """
+    masque = phases == PHASES.index("arrêt")
+
+    au_neutre = valeur_etat(etats.get("rapport"), param.get("rapport_neutre"))
+    if au_neutre is not None:
+        masque = masque & au_neutre
+
+    a_plat = None
+    if "pente" in voies:
+        seuil = float(param.get("pente_max_arret_pourcent", 2.0))
+        a_plat = np.abs(voies["pente"]) <= seuil
+    serre = valeur_etat(etats.get("frein_stationnement"), param.get("fse_serre"))
+
+    if a_plat is not None and serre is not None:
+        masque = masque & (a_plat | serre)
+    elif a_plat is not None:
+        masque = masque & a_plat
+    elif serre is not None:
+        masque = masque & serre
+    return masque
+
+
+def _zero(voies: dict, masque_arret: np.ndarray, fin: bool) -> float | None:
     """Résidu gauche − droite relevé à couple nul, avant ou après essai.
 
-    Un essai qui ne comporte qu'une seule plage d'arrêt ne fournit pas de zéro
-    de fin : rendre deux fois le même relevé afficherait une dérive intra-essai
-    nulle par construction, ce qui se lirait à tort comme un zéro stable.
+    Un essai qui ne comporte qu'une seule plage d'arrêt exploitable ne fournit
+    pas de zéro de fin : rendre deux fois le même relevé afficherait une dérive
+    intra-essai nulle par construction, ce qui se lirait à tort comme un zéro
+    stable.
     """
-    blocs = _blocs(phases == PHASES.index("arrêt"))
+    blocs = _blocs(masque_arret)
     if not blocs or (fin and len(blocs) < 2):
         return None
     bloc = blocs[-1] if fin else blocs[0]
@@ -244,6 +369,8 @@ class DetailEssai:
     masque: np.ndarray
     fenetres: list = field(default_factory=list)
     residus_fenetres: list = field(default_factory=list)
+    etats: dict = field(default_factory=dict)
+    masque_arret: np.ndarray | None = None
 
     @property
     def residu(self) -> np.ndarray:
@@ -253,6 +380,16 @@ class DetailEssai:
     def part_exploitable(self) -> float:
         """Proportion de l'essai retenue pour le calcul du résidu."""
         return float(self.masque.mean()) if self.masque.size else 0.0
+
+    def arrets_exploitables(self) -> int:
+        """Nombre de plages d'arrêt retenues pour un relevé de zéro.
+
+        Zéro alors que l'essai comporte des arrêts signifie que le rapport
+        n'était pas au neutre, ou que le véhicule était retenu dans une pente.
+        """
+        if self.masque_arret is None:
+            return 0
+        return len(_blocs(self.masque_arret))
 
     def repartition_phases(self) -> dict[str, float]:
         """Part de chaque phase dans l'essai, pour expliquer les exclusions."""
@@ -269,10 +406,11 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
     frequence = float(param.get("frequence_hz", 20.0))
 
     with MDF(chemin) as mdf:
-        t, voies = _voies(mdf, config.get("signaux", {}) or {}, frequence)
+        t, voies, etats = _voies(mdf, config.get("signaux", {}) or {}, frequence)
         debut = mdf.header.start_time
 
     phases = segmenter(t, voies, param)
+    arrets = masque_arret_zero(etats, voies, phases, param)
     masque = _masque_exploitable(t, voies, phases, param)
     taille_min = max(2, int(float(param.get("duree_fenetre_s", 2.0)) * frequence))
     fenetres = _fenetres(masque, taille_min)
@@ -293,8 +431,8 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
             g_est.append(float(np.mean(gauche[f] - part_roue[f])))
             d_est.append(float(np.mean(droit[f] - part_roue[f])))
 
-    zero_avant = _zero(voies, phases, fin=False)
-    zero_apres = _zero(voies, phases, fin=True)
+    zero_avant = _zero(voies, arrets, fin=False)
+    zero_apres = _zero(voies, arrets, fin=True)
     residus = {"voie_opposee": _resume(r_voie)}
     if r_estime:
         residus["couple_estime"] = _resume(r_estime)
@@ -320,7 +458,8 @@ def lire_detail(chemin: str | Path, config: dict) -> DetailEssai:
         chemin=str(chemin),
         empreinte=empreinte(chemin),
     )
-    return DetailEssai(indicateurs, t, voies, phases, masque, fenetres, r_voie)
+    return DetailEssai(indicateurs, t, voies, phases, masque, fenetres, r_voie,
+                       etats, arrets)
 
 
 def lire_essai(chemin: str | Path, config: dict) -> IndicateursEssai:
@@ -405,6 +544,43 @@ def voies_disponibles(chemin: str | Path) -> list[str]:
     """Noms de toutes les voies du fichier, mappées ou non."""
     with MDF(Path(chemin)) as mdf:
         return sorted(mdf.channels_db)
+
+
+def rendre_valeur(valeur) -> str:
+    """Valeur d'état sous forme lisible, pour une liste déroulante.
+
+    Un rapport lu « 3.0 » s'affiche « 3 » : c'est ce que l'opérateur reconnaît,
+    et c'est ce qui sera réécrit tel quel dans config.yaml.
+    """
+    if isinstance(valeur, (bool, np.bool_)):
+        return str(bool(valeur))
+    if isinstance(valeur, (int, float, np.integer, np.floating)):
+        nombre = float(valeur)
+        return str(int(nombre)) if nombre == int(nombre) else f"{nombre:g}"
+    return str(valeur).strip()
+
+
+def valeurs_distinctes(chemin: str | Path, nom: str,
+                       limite: int = 40) -> list[str]:
+    """Valeurs distinctes prises par une voie d'état dans un essai d'exemple.
+
+    Sert à proposer, dans la fenêtre de mappage, la liste des rapports ou des
+    états du frein réellement présents, plutôt que de faire deviner le codage.
+    Une voie qui prend trop de valeurs différentes n'est pas une voie d'état :
+    on rend une liste vide plutôt qu'un menu de plusieurs milliers d'entrées.
+    """
+    with MDF(Path(chemin)) as mdf:
+        try:
+            signal = mdf.get(nom)
+        except Exception:       # voie absente de cet essai
+            return []
+        echantillons = _echantillons_etat(signal.samples)
+    if not echantillons.size:
+        return []
+    uniques = np.unique(echantillons)
+    if uniques.size > limite:
+        return []
+    return [rendre_valeur(v) for v in uniques]
 
 
 def lire_voie(chemin: str | Path, nom: str,

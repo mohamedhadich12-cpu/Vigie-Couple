@@ -493,3 +493,108 @@ def test_modifier_capteur_corrige_le_numero_de_serie_sans_detacher_l_historique(
     assert stockage.modifier_capteur(autre, {"numero_serie": "SN-2"}) is False
     assert stockage.infos_capteur(autre)["numero_serie"] == "SN-3"
     stockage.fermer()
+
+
+# --------------------------------------------------------------------------
+# Arrêts exploitables : un arrêt en pente, rapport engagé, n'est pas un zéro
+# --------------------------------------------------------------------------
+def _scene_arret(n=100, rapport=None, pente=None, fse=None):
+    """Un essai fictif entièrement à l'arrêt, avec ses voies d'état."""
+    from vigie_couple.coeur.lecture_mf4 import PHASES
+    phases = np.full(n, PHASES.index("arrêt"), dtype=int)
+    voies = {} if pente is None else {"pente": np.full(n, float(pente))}
+    etats = {}
+    if rapport is not None:
+        etats["rapport"] = np.full(n, rapport)
+    if fse is not None:
+        etats["frein_stationnement"] = np.full(n, fse)
+    return etats, voies, phases
+
+
+def test_arret_au_neutre_est_exploitable():
+    from vigie_couple.coeur.lecture_mf4 import masque_arret_zero
+    etats, voies, phases = _scene_arret(rapport=0.0, pente=0.0)
+    masque = masque_arret_zero(etats, voies, phases,
+                               {"rapport_neutre": "0", "pente_max_arret_pourcent": 2.0})
+    assert masque.all()
+
+
+def test_arret_rapport_engage_est_rejete():
+    """Le cas visé : arrêt en pente, rapport engagé, l'arbre est en torsion."""
+    from vigie_couple.coeur.lecture_mf4 import masque_arret_zero
+    etats, voies, phases = _scene_arret(rapport=2.0, pente=8.0)
+    masque = masque_arret_zero(etats, voies, phases,
+                               {"rapport_neutre": "0", "pente_max_arret_pourcent": 2.0})
+    assert not masque.any()
+
+
+def test_arret_au_neutre_mais_en_pente_est_rejete_sans_frein():
+    from vigie_couple.coeur.lecture_mf4 import masque_arret_zero
+    etats, voies, phases = _scene_arret(rapport=0.0, pente=8.0)
+    masque = masque_arret_zero(etats, voies, phases,
+                               {"rapport_neutre": "0", "pente_max_arret_pourcent": 2.0})
+    assert not masque.any()
+
+
+def test_le_frein_de_stationnement_rattrape_un_arret_en_pente():
+    """Frein serré : c'est lui qui retient le véhicule, pas la transmission."""
+    from vigie_couple.coeur.lecture_mf4 import masque_arret_zero
+    etats, voies, phases = _scene_arret(rapport=0.0, pente=8.0, fse=1.0)
+    param = {"rapport_neutre": "0", "fse_serre": "1",
+             "pente_max_arret_pourcent": 2.0}
+    assert masque_arret_zero(etats, voies, phases, param).all()
+    # Mais le neutre reste exigé, frein serré ou non.
+    etats_engage, voies2, phases2 = _scene_arret(rapport=3.0, pente=8.0, fse=1.0)
+    assert not masque_arret_zero(etats_engage, voies2, phases2, param).any()
+
+
+def test_voies_d_etat_non_mappees_laissent_le_comportement_inchange():
+    """Sans ces voies, tout arrêt reste exploitable : la démo ne change pas."""
+    from vigie_couple.coeur.lecture_mf4 import masque_arret_zero
+    etats, voies, phases = _scene_arret()
+    assert masque_arret_zero(etats, voies, phases, {}).all()
+
+
+def test_valeur_etat_accepte_le_texte_et_le_nombre():
+    """Un rapport codé « N » ou codé « 0 » se désigne de la même façon."""
+    from vigie_couple.coeur.lecture_mf4 import valeur_etat
+    assert valeur_etat(np.array(["N", "1", "N"]), "N").tolist() == [True, False, True]
+    assert valeur_etat(np.array([0.0, 2.0, 0.0]), "0").tolist() == [True, False, True]
+    assert valeur_etat(np.array([0.0, 2.0]), "0,0").tolist() == [True, False]
+    # Choix vide ou voie absente : critère sauté, jamais d'exclusion muette.
+    assert valeur_etat(np.array([0.0]), "") is None
+    assert valeur_etat(None, "0") is None
+    assert valeur_etat(np.array([0.0]), "N") is None
+
+
+def test_une_voie_d_etat_est_maintenue_jamais_interpolee():
+    """Entre la 2ᵉ et la 3ᵉ, un rapport interpolé vaudrait « 2,4 », qui n'existe pas."""
+    from vigie_couple.coeur.lecture_mf4 import _maintien
+    ts = np.array([0.0, 1.0, 2.0])
+    rapports = np.array([2.0, 3.0, 4.0])
+    t = np.array([0.0, 0.5, 0.99, 1.0, 1.5, 2.0])
+    obtenu = _maintien(t, ts, rapports)
+    assert obtenu.tolist() == [2.0, 2.0, 2.0, 3.0, 3.0, 4.0]
+    assert set(obtenu) <= {2.0, 3.0, 4.0}   # aucune valeur intermédiaire inventée
+
+
+def test_le_mappage_ecrit_les_valeurs_d_etat_dans_la_bonne_section(tmp_path):
+    """rapport_neutre est un réglage de traitement, pas un nom de voie."""
+    import yaml
+    from vigie_couple.coeur.lecture_mf4 import CHEMIN_CONFIG, enregistrer_mappage
+
+    copie = tmp_path / "config.yaml"
+    copie.write_text(CHEMIN_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+    enregistrer_mappage(copie,
+                        {"rapport": "BV_RapportEngage", "frein_stationnement": "FSE_Etat"},
+                        {"rapport_neutre": "N", "fse_serre": "serré"})
+
+    relu = yaml.safe_load(copie.read_text(encoding="utf-8"))
+    assert relu["signaux"]["rapport"] == "BV_RapportEngage"
+    assert relu["signaux"]["frein_stationnement"] == "FSE_Etat"
+    assert relu["traitement"]["rapport_neutre"] == "N"
+    assert relu["traitement"]["fse_serre"] == "serré"
+    # Les valeurs d'état ne doivent pas atterrir parmi les noms de voies.
+    assert "rapport_neutre" not in relu["signaux"]
+    assert "fse_serre" not in relu["signaux"]
+    assert relu["detection"]["source"] == "voie_opposee"

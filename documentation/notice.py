@@ -219,7 +219,8 @@ table(["Rang", "Source", "Calcul du résidu", "Ce qu'elle vaut"], [
      "Suppose un essieu symétrique, donc valable en ligne droite hors "
      "intervention du contrôle de motricité. La plus fiable."],
     ["2", "Zéro à couple nul",
-     "écart gauche − droite relevé véhicule à l'arrêt, avant et après essai",
+     "écart gauche − droite relevé véhicule à l'arrêt, transmission déchargée, "
+     "avant et après essai",
      "Contrôle direct du décalage de zéro, la dérive la plus fréquente sur "
      "un capteur à jauges. Ne dit rien sur la sensibilité."],
     ["3", "Couple estimé",
@@ -318,11 +319,41 @@ table(["Indicateur", "Calcul", "Usage"], [
 ], [32, 48, 85])
 
 h2("2.5 Relevés de zéro")
-p("Le zéro est relevé sur la <b>première</b> et la <b>dernière</b> plage "
-  "d'arrêt de l'essai, en écartant 10 % de leur durée à chaque extrémité pour "
-  "ne pas capter l'entrée et la sortie d'immobilisation. La valeur retenue est "
-  "la moyenne de l'écart gauche − droite sur cette plage. Une plage d'arrêt de "
-  "moins de 20 échantillons est jugée trop courte et ne produit pas de relevé.")
+p("<b>Être immobile ne suffit pas à garantir un couple nul.</b> À l'arrêt dans "
+  "une pente, un rapport engagé retient le véhicule par la transmission : "
+  "l'arbre de roue travaille en torsion, le couple n'y est pas nul, et le "
+  "relever comme un zéro reviendrait à prendre une charge bien réelle pour une "
+  "dérive du capteur — puis à en polluer la référence de toute la campagne.")
+p("Trois voies qualifient donc les plages d'arrêt. Chacune est facultative : "
+  "non mappée, son critère est simplement sauté, ce qui laisse le comportement "
+  "inchangé sur une installation qui ne la fournit pas.")
+table(["Voie", "Condition exigée", "Pourquoi"], [
+    ["<b>rapport</b>", "au point mort, valeur désignée par "
+     "<font face='%s'>rapport_neutre</font>" % NORMALE,
+     "Hors point mort, la transmission peut transmettre un couple de retenue, "
+     "quelle que soit la pente."],
+    ["<b>pente</b>", "|pente| ≤ %s %%" % nb(TR.get("pente_max_arret_pourcent", 2.0)),
+     "Sur le plat, rien ne pousse le véhicule : la ligne de transmission ne "
+     "porte aucune charge de retenue."],
+    ["<b>frein_stationnement</b>", "serré, valeur désignée par "
+     "<font face='%s'>fse_serre</font>" % NORMALE,
+     "Le frein retient le véhicule à la place de la transmission : l'arrêt "
+     "redevient exploitable même en pente."],
+], [42, 52, 78])
+formule("arrêt exploitable = rapport au neutre "
+        "ET (pente faible OU frein de stationnement serré)")
+p("Le rapport et le frein de stationnement ne sont pas des mesures mais des "
+  "<b>états</b> : ils sont rééchantillonnés par maintien de la dernière valeur "
+  "connue, jamais interpolés. Une interpolation linéaire entre la 2ᵉ et la 3ᵉ "
+  "donnerait un rapport « 2,4 », qui n'existe pas. Le codage variant d'un "
+  "véhicule à l'autre, la valeur qui représente le neutre se désigne dans la "
+  "fenêtre de mappage, qui propose celles réellement présentes dans un essai "
+  "d'exemple.", "legende")
+p("Sur ces plages qualifiées, le zéro est relevé sur la <b>première</b> et la "
+  "<b>dernière</b>, en écartant 10 % de leur durée à chaque extrémité pour ne "
+  "pas capter l'entrée et la sortie d'immobilisation. La valeur retenue est la "
+  "moyenne de l'écart gauche − droite sur la plage. Une plage de moins de 20 "
+  "échantillons est jugée trop courte et ne produit pas de relevé.")
 p("Ces deux valeurs alimentent la source de résidu « zéro », le test de dérive "
   "de zéro de la discrimination, et sont archivées automatiquement dans la "
   "fiche de vie du capteur.")
@@ -681,16 +712,23 @@ table(["Commande", "Effet", "À savoir"], [
      "Lit la liste des voies du fichier et en remplit les listes déroulantes.",
      "Facultatif : sans fichier d'exemple, les champs restent en saisie libre. "
      "Le fichier n'est pas chargé comme essai, il sert seulement de catalogue."],
-    ["Les huit listes déroulantes",
+    ["Les onze listes déroulantes",
      "Une par grandeur attendue. Éditables : on peut taper un nom absent de la liste.",
-     "<b>Couple gauche et couple droit sont obligatoires.</b> Les six autres "
+     "<b>Couple gauche et couple droit sont obligatoires.</b> Les neuf autres "
      "sont facultatives ; laissées vides, elles désactivent les traitements qui "
      "en dépendent, sans bloquer le calcul du résidu."],
+    ["<b>Valeurs d'état des arrêts</b>",
+     "Deux listes en bas de la fenêtre : la valeur du rapport qui désigne le "
+     "point mort, celle du frein de stationnement qui désigne le serrage.",
+     "Elles proposent les valeurs <b>réellement rencontrées</b> dans l'essai "
+     "d'exemple, plutôt que de faire deviner le codage (§ 2.5). Mapper une de "
+     "ces deux voies sans désigner sa valeur laisserait le critère inactif : "
+     "l'enregistrement le refuse et le dit."],
     ["<b>Enregistrer</b>",
      "Vérifie les deux voies obligatoires puis réécrit config.yaml.",
-     "Seules les lignes de voies sont modifiées : commentaires, seuils de "
-     "traitement et réglages de détection sont préservés. Effet immédiat, sans "
-     "redémarrage."],
+     "Seules les lignes de voies et les deux valeurs d'état sont modifiées : "
+     "commentaires, seuils de traitement et réglages de détection sont "
+     "préservés. Effet immédiat, sans redémarrage."],
     ["<b>Continuer sans modifier</b>", "Ferme sans rien écrire.",
      "C'est l'action par défaut : une validation au clavier ne modifie rien."],
 ], [40, 55, 70])
@@ -859,7 +897,7 @@ p("Tout est dans <font face='%s'>vigie_couple/config.yaml</font>. Les seuils "
   "d'essai réel : ceux livrés conviennent à un roulage sur piste avec paliers "
   "de vitesse et côtes, pas nécessairement au vôtre." % NORMALE)
 table(["Clé", "Rôle", "Défaut"], [
-    ["<b>signaux</b> (8 clés)", "Mappage des voies. Réglable par la fenêtre "
+    ["<b>signaux</b> (11 clés)", "Mappage des voies. Réglable par la fenêtre "
      "de mappage, sans éditer le fichier.", "voir § 4.3"],
     ["frequence_hz", "Base de temps commune du rééchantillonnage.",
      nb(TR["frequence_hz"])],
@@ -882,6 +920,17 @@ table(["Clé", "Rôle", "Défaut"], [
      "voies ; <b>false</b> s'il l'estime par roue, auquel cas on lui compare "
      "leur <b>moyenne</b>." % NORMALE,
      "true" if TR.get("couple_estime_total_essieu") else "false"],
+    ["rapport_neutre", "Valeur du signal <font face='%s'>rapport</font> qui "
+     "désigne le point mort. Un arrêt hors point mort n'est pas exploitable "
+     "pour un relevé de zéro (§ 2.5)." % NORMALE,
+     '"%s"' % (TR.get("rapport_neutre") or "")],
+    ["fse_serre", "Valeur du signal de frein de stationnement qui désigne "
+     "l'état serré. Un frein serré rend de nouveau exploitable un arrêt en pente.",
+     '"%s"' % (TR.get("fse_serre") or "")],
+    ["pente_max_arret_pourcent",
+     "Pente au-delà de laquelle un arrêt n'est retenu que si le frein de "
+     "stationnement est serré.",
+     nb(TR.get("pente_max_arret_pourcent", 2.0))],
     ["<b>detection</b> (9 clés)", "Valeurs de départ du panneau Réglages.",
      "voir § 4.5"],
     ["<b>capteur</b> (6 clés)", "Capteur créé au premier lancement, et seuil de "

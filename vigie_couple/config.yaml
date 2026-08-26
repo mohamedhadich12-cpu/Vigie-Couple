@@ -12,6 +12,11 @@ signaux:
   # Voies facultatives : laisser vide si absentes de l'acquisition.
   temperature:      Temp_Capteur_G
   vitesse_lacet:    ""
+  # Voies d'état qui qualifient les arrêts. Sans elles, tout arrêt compte comme
+  # exploitable pour un relevé de zéro, ce qui était le comportement d'origine.
+  pente:            ""
+  rapport:          ""
+  frein_stationnement: ""
 
 traitement:
   frequence_hz: 20           # base de temps commune du rééchantillonnage
@@ -27,6 +32,26 @@ traitement:
   # sur la documentation du calculateur — se tromper introduit un biais
   # artificiel d'un facteur ~2 sur la source « couple estimé ».
   couple_estime_total_essieu: true
+
+  # --- Arrêts exploitables pour un relevé de zéro ---------------------------
+  # À l'arrêt dans une pente, un rapport engagé retient le véhicule par la
+  # transmission : l'arbre de roue travaille en torsion et le couple n'est PAS
+  # nul, alors que la vitesse l'est. Relever le zéro là prendrait une charge
+  # réelle pour une dérive du capteur.
+  #
+  # Règle appliquée : rapport au neutre ET (pente faible OU frein serré).
+  # Chaque critère est sauté si sa voie n'est pas mappée.
+  #
+  # Valeur du signal « rapport » qui désigne le point mort, telle qu'elle
+  # apparaît dans l'acquisition : « 0 », « N », « Neutral »... Se renseigne
+  # depuis la fenêtre « Configurer les voies… », qui propose les valeurs
+  # réellement présentes dans un essai d'exemple.
+  rapport_neutre: ""
+  # Valeur du signal de frein de stationnement qui désigne l'état serré.
+  fse_serre: ""
+  # Pente au-delà de laquelle un arrêt n'est retenu que si le frein de
+  # stationnement est serré, en pourcent.
+  pente_max_arret_pourcent: 2.0
 
 detection:
   source: voie_opposee       # voie_opposee | zero | couple_estime

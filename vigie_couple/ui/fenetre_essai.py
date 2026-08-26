@@ -233,12 +233,17 @@ class FenetreEssai(QtWidgets.QDialog):
         resume = ind.resume(self.analyse.source if self.analyse else "voie_opposee")
         parts = self.detail.repartition_phases()
         phases = ", ".join(f"{nom} {part:.0%}" for nom, part in parts.items() if part)
+        # Le compte des arrêts exploitables explique un zéro manquant : un arrêt
+        # rapport engagé, ou en pente sans frein serré, ne compte pas.
+        arrets = self.detail.arrets_exploitables()
+        zeros = sum(v is not None for v in (ind.zero_avant, ind.zero_apres))
         return (f"{horodatage(ind.date)}  ·  durée {ind.duree_s:.0f} s  ·  "
                 f"couple max {theme.nombre(ind.couple_max, 0, 'N·m')}  ·  "
                 f"biais {theme.nombre(resume.biais, 2, 'N·m', signe=True)}  ·  "
                 f"{len(self.detail.fenetres)} fenêtres retenues "
                 f"({self.detail.part_exploitable():.0%} de l'essai)\n"
-                f"Phases : {phases}")
+                f"Phases : {phases}  ·  {arrets} arrêts exploitables pour le zéro, "
+                f"{zeros} relevés obtenus")
 
     def _tracer(self):
         detail, c = self.detail, theme.couleurs(self._mode)

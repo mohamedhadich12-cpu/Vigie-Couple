@@ -18,7 +18,7 @@ capteur à trois sources imparfaites, par fiabilité décroissante :
 | Rang | Source | Nature |
 |---|---|---|
 | 1 | **Voie opposée** (arbre gauche − arbre droit) | ne dépend d'aucun modèle — **source par défaut** |
-| 2 | **Zéro à couple nul**, avant et après essai | contrôle direct du décalage de zéro |
+| 2 | **Zéro à couple nul**, avant et après essai | contrôle direct du décalage de zéro, sur les seuls arrêts *déchargés* |
 | 3 | **Couple estimé par le calculateur** | dernier recours : le modèle a sa propre erreur |
 
 Le résidu « couple estimé » se compare **à l'échelle où le calculateur exprime
@@ -101,9 +101,10 @@ graphique à la fois, en quatre onglets — Couple, Résidu, Vitesse, **Tracé
 libre**. Les plages retenues pour le calcul sont surlignées en vert, et **les
 zones où le résidu sort de la bande d'accord en orange**, au-delà de l'écart
 admissible en rouge — toujours avec un libellé texte, jamais la couleur seule.
-L'en-tête donne la part exploitable de l'essai et la répartition des phases :
-c'est le premier endroit où regarder quand un essai ne produit aucun
-indicateur.
+L'en-tête donne la part exploitable de l'essai, la répartition des phases, et
+le nombre d'arrêts retenus pour un relevé de zéro face au nombre de relevés
+effectivement obtenus : c'est le premier endroit où regarder quand un essai ne
+produit aucun indicateur, ou aucun zéro.
 
 L'onglet *Couple* trace **les deux voies simultanément** sur un axe unique —
 elles sont toutes deux en N·m, il n'y a donc jamais de second axe des
@@ -130,8 +131,9 @@ de 1 500.
 Traitement par essai : lecture `asammdf` → rééchantillonnage sur une base de
 temps commune (20 Hz) → segmentation en phases (arrêt, traction, freinage
 récupératif, transitoire) → sélection des fenêtres exploitables (vitesse
-stabilisée, ligne droite, hors transitoire) → une valeur de résidu par fenêtre
-de 2 s → indicateurs de l'essai. **Les transitoires sont exclus** : un défaut de
+stabilisée, ligne droite, hors transitoire) → qualification des arrêts pour le
+relevé de zéro (rapport au neutre, transmission déchargée) → une valeur de
+résidu par fenêtre de 2 s → indicateurs de l'essai. **Les transitoires sont exclus** : un défaut de
 synchronisation entre les deux voies y produit un élargissement de dispersion
 qu'on confondrait avec du bruit.
 
@@ -228,9 +230,42 @@ atteinte**, en une phrase sous le verdict :
 
 Tout est dans `vigie_couple/config.yaml` : mappage des voies (aucun nom de
 signal en dur dans le code), paramètres de traitement, réglages de détection,
-identification du capteur. Les voies `temperature` et `vitesse_lacet` sont
-facultatives : laissées vides, la sélection des fenêtres se rabat sur le critère
-de vitesse stabilisée et le test thermique est simplement sauté.
+identification du capteur. Les voies `temperature`, `vitesse_lacet`, `pente`,
+`rapport` et `frein_stationnement` sont facultatives : laissée vide, chacune
+désactive simplement le critère qui en dépend, sans rien bloquer.
+
+### Arrêts exploitables pour un relevé de zéro
+
+Être immobile ne suffit pas à garantir un couple nul. **À l'arrêt dans une
+pente, un rapport engagé retient le véhicule par la transmission** : l'arbre de
+roue travaille en torsion, le couple n'y est pas nul, et le relever comme un
+zéro reviendrait à prendre une charge bien réelle pour une dérive du capteur.
+
+Trois voies qualifient donc les arrêts, chacune facultative :
+
+| Voie | Rôle |
+|---|---|
+| `rapport` | le rapport doit être **au point mort**, sinon la transmission peut transmettre un couple de retenue |
+| `pente` | la pente doit être faible, seuil `pente_max_arret_pourcent`, 2 % par défaut |
+| `frein_stationnement` | frein serré : c'est lui qui retient le véhicule et non la transmission, l'arrêt redevient exploitable même en pente |
+
+Règle appliquée : **rapport au neutre ET (pente faible OU frein serré)**. Si une
+seule des deux dernières voies est mappée, elle décide seule.
+
+`rapport` et `frein_stationnement` ne sont pas des mesures mais des **états** :
+elles sont rééchantillonnées par maintien de la dernière valeur, jamais
+interpolées, sans quoi un rapport lu entre la 2ᵉ et la 3ᵉ vaudrait « 2,4 ». Le
+codage variant d'un véhicule à l'autre, on désigne la valeur qui représente le
+neutre — `0`, `N`, `Neutral`… — dans `rapport_neutre`, et celle qui représente
+le serrage dans `fse_serre`. La fenêtre de mappage propose les valeurs
+réellement présentes dans un essai d'exemple, plutôt que de faire deviner le
+codage.
+
+Sur un essai de contrôle comportant un arrêt final en côte à 9 % deuxième
+engagée, avec un écart gauche/droite réel de 15 N·m dû à la torsion : sans ces
+critères, le zéro de fin relève **+10,4 N·m** et dépasse le seuil de dérive
+majeure, ce qui déclare l'essai non conforme à tort. Avec, l'arrêt est écarté
+et le zéro retenu vaut **−1,1 N·m**.
 
 Le **jeu de démonstration est isolé du reste** : il bascule sur son propre
 capteur — « Capteur de démonstration · DEMO » — plutôt que de verser 30 essais
@@ -242,7 +277,12 @@ donc pas, et le bouton reste utilisable même sans capteur sélectionné.
 voies… »**, premier de l'écran Campagne : choisis un essai `.mf4` d'exemple,
 les voies qu'il contient apparaissent dans des listes déroulantes en face de
 chaque grandeur attendue (couple gauche/droite obligatoires, le reste
-facultatif). *Enregistrer* réécrit uniquement les lignes de voies dans
+facultatif). En bas, une section **Valeurs d'état des arrêts** propose, pour le
+rapport et pour le frein de stationnement, les valeurs réellement rencontrées
+dans l'essai d'exemple : on y désigne celle qui représente le point mort, et
+celle qui représente le serrage. Mapper une de ces deux voies sans désigner sa
+valeur laisserait le critère inactif : *Enregistrer* le refuse et le dit.
+*Enregistrer* réécrit uniquement les lignes de voies et ces deux valeurs dans
 `config.yaml`, sans toucher aux commentaires ni aux autres réglages. C'est le
 premier réflexe à avoir avant de charger des acquisitions réelles : sans cette
 étape, une voie au nom différent du jeu de démonstration fait échouer
@@ -279,7 +319,7 @@ voie gauche », et 90 jours avant l'échéance d'étalonnage.
 
 ## Notice technique
 
-`documentation/Vigie_Couple_notice_technique.pdf` — 16 pages : le principe, la
+`documentation/Vigie_Couple_notice_technique.pdf` — 17 pages : le principe, la
 logique de calcul détaillée (chaîne de traitement, référence robuste, CUSUM,
 EWMA, verdict, discrimination), et le rôle exact de chaque bouton de
 l'interface. Régénérable par `python documentation/notice.py` ; les seuils
@@ -292,7 +332,7 @@ désynchroniser du code.
 python -m pytest tests -q
 ```
 
-37 cas de test (31 fonctions, dont une paramétrée sur sept noms de voie) sur le cœur
+45 cas de test (39 fonctions, dont une paramétrée sur sept noms de voie) sur le cœur
 de calcul uniquement — aucun test d'interface : délai de
 détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
 comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
@@ -300,7 +340,8 @@ de σ₀ à une valeur aberrante, les cinq branches de la discrimination, le
 verdict d'une fenêtre isolée avec son échelle propre, la fusion des imports
 successifs sans doublon ni perte, la remise à zéro des cartes à une rupture,
 les deux échelles du couple estimé, la relecture du mappage quel que soit le
-nom de voie écrit, et la mise à jour — non l'écrasement — de la fiche de vie.
+nom de voie écrit, la mise à jour et non l'écrasement de la fiche de vie, et la
+qualification des arrêts par le rapport, la pente et le frein de stationnement.
 
 ---
 
@@ -355,7 +396,7 @@ tests/test_detection.py
 donnees_demo/generateur.py
 ```
 
-11 modules d'application, 3562 lignes dont l'essentiel de code
+11 modules d'application, 3847 lignes dont l'essentiel de code
 effectif : le reste est constitué des commentaires et docstrings en français.
 Le périmètre a dépassé les 1 500 lignes visées au départ, par ajouts demandés
 après la première livraison (mappage des voies, visualisation d'essai).
