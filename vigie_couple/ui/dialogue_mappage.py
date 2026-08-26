@@ -7,9 +7,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from asammdf import MDF
-from PyQt5 import QtWidgets
+from PyQt5 import QtCore, QtWidgets
 
-from ..coeur.lecture_mf4 import enregistrer_mappage, valeurs_distinctes
+from ..coeur.lecture_mf4 import enregistrer_mappage, valeurs_proposees
 from . import theme
 
 # (clé, libellé, obligatoire)
@@ -150,7 +150,14 @@ class DialogueMappage(QtWidgets.QDialog):
             self._proposer_valeurs(voie)
 
     def _proposer_valeurs(self, voie: str):
-        """Liste les valeurs réellement prises par une voie d'état dans l'exemple.
+        """Propose les états d'une voie : son catalogue complet d'abord.
+
+        Un essai ne contient que ce qui s'est produit ce jour-là. Proposer les
+        seules valeurs rencontrées priverait du choix « marche arrière » un
+        essai sans marche arrière, et du choix « serré » un essai où le frein à
+        main n'a pas servi. On propose donc la table de valeurs du fichier,
+        qui énumère tout le codage, et l'on n'y ajoute les valeurs observées
+        que si elles n'y figurent pas.
 
         Sans essai d'exemple, le champ reste en saisie libre : on ne devine pas
         le codage d'un rapport de boîte à la place de l'opérateur.
@@ -161,13 +168,33 @@ class DialogueMappage(QtWidgets.QDialog):
         nom = self.champs[voie].currentText().strip()
         actuel = boite.currentText()
         boite.clear()
+        aide = ""
         if self.exemple and nom:
-            valeurs = valeurs_distinctes(self.exemple, nom)
-            boite.addItems(valeurs)
-            if not valeurs:
-                boite.setToolTip("Aucune valeur exploitable : voie absente de cet "
-                                 "essai, ou trop de valeurs distinctes pour une "
-                                 "voie d'état.")
+            proposees, vues = valeurs_proposees(self.exemple, nom)
+            boite.addItems(proposees)
+            for rang, valeur in enumerate(proposees):
+                # L'infobulle porte la nuance, jamais le libellé : celui-ci est
+                # réécrit tel quel dans config.yaml et sert de clé de comparaison.
+                boite.setItemData(
+                    rang,
+                    "Rencontrée dans l'essai d'exemple" if valeur in vues
+                    else "Cataloguée par le fichier, absente de cet essai",
+                    QtCore.Qt.ToolTipRole)
+            catalogues = len(proposees) - len(vues - set(proposees))
+            if not proposees:
+                aide = ("Aucune valeur proposable : voie absente de cet essai, ou "
+                        "trop de valeurs distinctes pour une voie d'état. Saisissez "
+                        "la valeur à la main.")
+            elif len(vues) < len(proposees):
+                accord = "rencontré" if len(vues) < 2 else "rencontrés"
+                aide = (f"{len(proposees)} états proposés, dont {len(vues)} "
+                        f"{accord} dans cet essai. Les autres viennent de la "
+                        "table de valeurs du fichier.")
+            else:
+                aide = (f"{len(proposees)} états, tous rencontrés dans cet essai. "
+                        "Ce fichier ne porte pas de table de valeurs : seuls les "
+                        "états réellement roulés peuvent être proposés.")
+        boite.setToolTip(aide)
         boite.setEditText(actuel)
 
     def _enregistrer(self):

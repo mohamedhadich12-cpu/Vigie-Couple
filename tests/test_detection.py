@@ -598,3 +598,90 @@ def test_le_mappage_ecrit_les_valeurs_d_etat_dans_la_bonne_section(tmp_path):
     assert "rapport_neutre" not in relu["signaux"]
     assert "fse_serre" not in relu["signaux"]
     assert relu["detection"]["source"] == "voie_opposee"
+
+
+# --------------------------------------------------------------------------
+# Valeurs d'état proposées : le catalogue du fichier, pas seulement le vécu
+# --------------------------------------------------------------------------
+def _essai_avec_table(tmp_path):
+    """Essai où seuls N, 2 et 4 sont roulés, mais dont la table code 7 rapports."""
+    from asammdf import MDF, Signal
+    from asammdf.blocks import v4_blocks as v4, v4_constants as v4c
+
+    def table(etats):
+        conv = {"conversion_type": v4c.CONVERSION_TYPE_TABX,
+                "val_param_nr": len(etats), "ref_param_nr": len(etats) + 1}
+        for rang, (valeur, texte) in enumerate(etats):
+            conv[f"val_{rang}"] = float(valeur)
+            conv[f"text_{rang}"] = texte.encode()      # UTF-8, comme la norme MDF4
+        conv["default_addr"] = b"inconnu"
+        return v4.ChannelConversion(**conv)
+
+    t = np.arange(0.0, 60.0, 0.05)
+    rapport = np.zeros_like(t)
+    rapport[(t > 10) & (t < 30)] = 2.0
+    rapport[t >= 30] = 4.0
+    chemin = tmp_path / "avec_table.mf4"
+    mdf = MDF(version="4.10")
+    mdf.append([
+        Signal(np.zeros_like(t), t, name="CRoue_Trans_G", unit="N.m"),
+        Signal(np.zeros_like(t), t, name="CRoue_Trans_D", unit="N.m"),
+        Signal(rapport, t, name="BV_Rapport", conversion=table(
+            [(0, "N"), (1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5"), (6, "R")])),
+        Signal(np.zeros_like(t), t, name="FSE", conversion=table(
+            [(0, "desserré"), (1, "serré")])),
+    ])
+    mdf.save(chemin, overwrite=True)
+    mdf.close()
+    return chemin
+
+
+def test_les_etats_proposes_viennent_de_la_table_pas_du_seul_vecu(tmp_path):
+    """Un essai sans marche arrière doit quand même proposer « R »."""
+    from vigie_couple.coeur.lecture_mf4 import valeurs_distinctes, valeurs_proposees
+    chemin = _essai_avec_table(tmp_path)
+
+    assert sorted(valeurs_distinctes(chemin, "BV_Rapport")) == ["2", "4", "N"]
+    proposees, vues = valeurs_proposees(chemin, "BV_Rapport")
+    assert proposees == ["N", "1", "2", "3", "4", "5", "R"]   # ordre de la table
+    assert vues == {"N", "2", "4"}
+
+
+def test_un_etat_jamais_atteint_reste_proposable(tmp_path):
+    """Le frein à main n'a pas servi de l'essai : « serré » doit rester choisissable."""
+    from vigie_couple.coeur.lecture_mf4 import valeurs_proposees
+    proposees, vues = valeurs_proposees(_essai_avec_table(tmp_path), "FSE")
+    assert proposees == ["desserré", "serré"]
+    assert vues == {"desserré"}          # seul l'état desserré a été rencontré
+
+
+def test_le_texte_des_tables_de_valeurs_est_decode_en_utf8(tmp_path):
+    """« desserré » ne doit pas devenir « desserrÃ© » : il sert de clé de comparaison."""
+    from vigie_couple.coeur.lecture_mf4 import (catalogue_valeurs, texte_mf4,
+                                                valeur_etat, valeurs_distinctes)
+    chemin = _essai_avec_table(tmp_path)
+    assert catalogue_valeurs(chemin, "FSE") == ["desserré", "serré"]
+    assert valeurs_distinctes(chemin, "FSE") == ["desserré"]
+    assert texte_mf4("serré".encode("utf-8")) == "serré"
+    assert texte_mf4("serré".encode("latin-1")) == "serré"   # repli sur latin-1
+    # Le libellé proposé doit se comparer aux échantillons sans retouche.
+    assert valeur_etat(np.array(["desserré", "serré"]), "serré").tolist() == [False, True]
+
+
+def test_sans_table_de_valeurs_seules_les_valeurs_vues_sont_proposees(tmp_path):
+    """Codage numérique brut : on ne peut rien inventer, et on ne prétend pas le faire."""
+    from asammdf import MDF, Signal
+    from vigie_couple.coeur.lecture_mf4 import catalogue_valeurs, valeurs_proposees
+
+    t = np.arange(0.0, 20.0, 0.05)
+    rapport = np.where(t > 10, 3.0, 0.0)
+    chemin = tmp_path / "sans_table.mf4"
+    mdf = MDF(version="4.10")
+    mdf.append([Signal(np.zeros_like(t), t, name="CRoue_Trans_G", unit="N.m"),
+                Signal(rapport, t, name="BV_Rapport")])
+    mdf.save(chemin, overwrite=True)
+    mdf.close()
+
+    assert catalogue_valeurs(chemin, "BV_Rapport") == []
+    proposees, vues = valeurs_proposees(chemin, "BV_Rapport")
+    assert proposees == ["0", "3"] and vues == {"0", "3"}

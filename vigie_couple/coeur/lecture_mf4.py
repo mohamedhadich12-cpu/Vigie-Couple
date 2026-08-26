@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 from asammdf import MDF
+from asammdf.blocks import v4_constants as v4c
 from scipy import stats
 
 from .detection import IndicateursEssai, Reglages, ResumeResidu
@@ -27,6 +28,12 @@ PHASES = ("arrêt", "traction", "freinage récupératif", "transitoire")
 # rééchantillonnées par maintien de la dernière valeur et comparées à une
 # valeur choisie par l'opérateur, jamais interpolées ni moyennées.
 VOIES_ETAT = ("rapport", "frein_stationnement")
+
+# Conversions MF4 qui énumèrent des états nommés : « valeur vers texte » et
+# « plage de valeurs vers texte ». Les autres conversions sont numériques
+# (mise à l'échelle, interpolation) et ne cataloguent aucun état.
+TABLES_DE_VALEURS = (v4c.CONVERSION_TYPE_TABX, v4c.CONVERSION_TYPE_RTABX)
+_RANG_TEXTE = re.compile(r"text_(\d+)")
 
 # Voies du jeu de démonstration. Elles sont fixées par donnees_demo/generateur.py
 # et ne doivent pas dépendre du mappage adapté aux acquisitions du site : sinon
@@ -129,6 +136,24 @@ def reglages_depuis_config(config: dict) -> Reglages:
 
 
 # --- Lecture et rééchantillonnage ---
+def texte_mf4(valeur) -> str:
+    """Décode un texte de fichier MF4, quel que soit son encodage.
+
+    La norme MDF4 prescrit l'UTF-8, mais des outils d'acquisition écrivent
+    encore en latin-1. Décoder systématiquement en latin-1 rendait « desserré »
+    sous la forme « desserrÃ© » : illisible à l'écran, et surtout réécrit tel
+    quel dans config.yaml, où il ne correspondrait plus à rien.
+    """
+    if not isinstance(valeur, bytes):
+        return str(valeur).strip()
+    for encodage in ("utf-8", "latin-1"):
+        try:
+            return valeur.decode(encodage).strip()
+        except UnicodeDecodeError:
+            continue
+    return valeur.decode("latin-1", "replace").strip()
+
+
 def _echantillons_etat(echantillons) -> np.ndarray:
     """Voie d'état : numérique si elle l'est, texte sinon.
 
@@ -140,8 +165,7 @@ def _echantillons_etat(echantillons) -> np.ndarray:
     tableau = np.asarray(echantillons).ravel()
     if tableau.dtype.kind in "fiub":
         return tableau
-    return np.asarray([v.decode("latin-1", "replace") if isinstance(v, bytes) else str(v)
-                       for v in tableau])
+    return np.asarray([texte_mf4(v) for v in tableau])
 
 
 def _maintien(t: np.ndarray, ts: np.ndarray, echantillons: np.ndarray) -> np.ndarray:
@@ -562,10 +586,8 @@ def rendre_valeur(valeur) -> str:
 
 def valeurs_distinctes(chemin: str | Path, nom: str,
                        limite: int = 40) -> list[str]:
-    """Valeurs distinctes prises par une voie d'état dans un essai d'exemple.
+    """Valeurs distinctes réellement prises par une voie dans un essai d'exemple.
 
-    Sert à proposer, dans la fenêtre de mappage, la liste des rapports ou des
-    états du frein réellement présents, plutôt que de faire deviner le codage.
     Une voie qui prend trop de valeurs différentes n'est pas une voie d'état :
     on rend une liste vide plutôt qu'un menu de plusieurs milliers d'entrées.
     """
@@ -581,6 +603,59 @@ def valeurs_distinctes(chemin: str | Path, nom: str,
     if uniques.size > limite:
         return []
     return [rendre_valeur(v) for v in uniques]
+
+
+def catalogue_valeurs(chemin: str | Path, nom: str) -> list[str]:
+    """Tous les états catalogués par la table de valeurs de la voie.
+
+    Un essai ne contient que ce qui s'est produit : celui où la marche arrière
+    n'a pas servi ne montre jamais « R », celui où le frein à main est resté
+    desserré ne montre jamais « serré ». La **table de valeurs** du fichier
+    MF4, elle, énumère tout le codage du véhicule, indépendamment de ce qui a
+    été roulé ce jour-là. C'est elle qu'il faut proposer à l'opérateur.
+
+    Rend une liste vide quand la voie ne porte pas de table de valeurs : son
+    codage est alors numérique brut, et seules les valeurs rencontrées peuvent
+    être proposées.
+    """
+    with MDF(Path(chemin)) as mdf:
+        try:
+            # La conversion n'est lisible que sur le signal brut : appliquée,
+            # asammdf la consomme et ne la rattache plus au signal rendu.
+            signal = mdf.get(nom, raw=True)
+        except Exception:
+            return []
+        conversion = getattr(signal, "conversion", None)
+        if conversion is None:
+            return []
+        if getattr(conversion, "conversion_type", None) not in TABLES_DE_VALEURS:
+            return []       # conversion numérique (échelle, interpolation) : pas des états
+        blocs = getattr(conversion, "referenced_blocks", None) or {}
+        catalogue = []
+        for cle in sorted((c for c in blocs if _RANG_TEXTE.fullmatch(c)),
+                          key=lambda c: int(c.split("_")[1])):
+            texte = texte_mf4(getattr(blocs[cle], "text", blocs[cle]))
+            if texte and texte not in catalogue:
+                catalogue.append(texte)
+    return catalogue
+
+
+def valeurs_proposees(chemin: str | Path, nom: str,
+                      limite: int = 60) -> tuple[list[str], set[str]]:
+    """Valeurs à proposer pour une voie d'état, et celles vues dans l'essai.
+
+    Le catalogue de la table de valeurs vient d'abord, dans son ordre : c'est
+    le codage complet du véhicule. Les valeurs rencontrées qui n'y figurent pas
+    le suivent. Rend aussi l'ensemble de celles réellement présentes, pour que
+    l'interface puisse distinguer « catalogué » de « observé » sans altérer le
+    libellé, qui sera réécrit tel quel dans config.yaml.
+    """
+    vues = valeurs_distinctes(chemin, nom, limite)
+    proposees = list(catalogue_valeurs(chemin, nom))
+    for valeur in vues:
+        if valeur not in proposees:
+            proposees.append(valeur)
+    return proposees[:limite], set(vues)
 
 
 def lire_voie(chemin: str | Path, nom: str,

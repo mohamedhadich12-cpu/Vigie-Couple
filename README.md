@@ -257,9 +257,10 @@ elles sont rééchantillonnées par maintien de la dernière valeur, jamais
 interpolées, sans quoi un rapport lu entre la 2ᵉ et la 3ᵉ vaudrait « 2,4 ». Le
 codage variant d'un véhicule à l'autre, on désigne la valeur qui représente le
 neutre — `0`, `N`, `Neutral`… — dans `rapport_neutre`, et celle qui représente
-le serrage dans `fse_serre`. La fenêtre de mappage propose les valeurs
-réellement présentes dans un essai d'exemple, plutôt que de faire deviner le
-codage.
+le serrage dans `fse_serre`. La fenêtre de mappage lit la **table de valeurs**
+du fichier MF4 pour proposer le codage complet du véhicule, et non les seuls
+états rencontrés ce jour-là. Les textes sont décodés en UTF-8 comme le prescrit
+la norme MDF4, avec repli sur latin-1 : « desserré » reste « desserré ».
 
 Sur un essai de contrôle comportant un arrêt final en côte à 9 % deuxième
 engagée, avec un écart gauche/droite réel de 15 N·m dû à la torsion : sans ces
@@ -278,9 +279,14 @@ voies… »**, premier de l'écran Campagne : choisis un essai `.mf4` d'exemple,
 les voies qu'il contient apparaissent dans des listes déroulantes en face de
 chaque grandeur attendue (couple gauche/droite obligatoires, le reste
 facultatif). En bas, une section **Valeurs d'état des arrêts** propose, pour le
-rapport et pour le frein de stationnement, les valeurs réellement rencontrées
-dans l'essai d'exemple : on y désigne celle qui représente le point mort, et
-celle qui représente le serrage. Mapper une de ces deux voies sans désigner sa
+rapport et pour le frein de stationnement, **tous les états catalogués par la
+table de valeurs du fichier**, et non les seuls états rencontrés : un essai sans
+marche arrière propose quand même « R », un essai où le frein à main n'a pas
+servi propose quand même « serré ». L'infobulle de chaque entrée distingue ce
+qui a été rencontré de ce qui vient de la table. Faute de table de valeurs, le
+codage est numérique brut et seules les valeurs observées peuvent être
+proposées : le champ reste alors en saisie libre. On y désigne celle qui
+représente le point mort, et celle qui représente le serrage. Mapper une de ces deux voies sans désigner sa
 valeur laisserait le critère inactif : *Enregistrer* le refuse et le dit.
 *Enregistrer* réécrit uniquement les lignes de voies et ces deux valeurs dans
 `config.yaml`, sans toucher aux commentaires ni aux autres réglages. C'est le
@@ -332,7 +338,7 @@ désynchroniser du code.
 python -m pytest tests -q
 ```
 
-45 cas de test (39 fonctions, dont une paramétrée sur sept noms de voie) sur le cœur
+49 cas de test (43 fonctions, dont une paramétrée sur sept noms de voie) sur le cœur
 de calcul uniquement — aucun test d'interface : délai de
 détection d'un décalage de 1 σ, absence de fausse alarme sur série saine,
 comportement comparable de l'EWMA, présence du terme transitoire, insensibilité
@@ -341,7 +347,8 @@ verdict d'une fenêtre isolée avec son échelle propre, la fusion des imports
 successifs sans doublon ni perte, la remise à zéro des cartes à une rupture,
 les deux échelles du couple estimé, la relecture du mappage quel que soit le
 nom de voie écrit, la mise à jour et non l'écrasement de la fiche de vie, et la
-qualification des arrêts par le rapport, la pente et le frein de stationnement.
+qualification des arrêts par le rapport, la pente et le frein de stationnement,
+et le catalogue complet des états proposés pour ces deux voies.
 
 ---
 

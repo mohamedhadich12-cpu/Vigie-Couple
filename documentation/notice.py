@@ -720,10 +720,12 @@ table(["Commande", "Effet", "À savoir"], [
     ["<b>Valeurs d'état des arrêts</b>",
      "Deux listes en bas de la fenêtre : la valeur du rapport qui désigne le "
      "point mort, celle du frein de stationnement qui désigne le serrage.",
-     "Elles proposent les valeurs <b>réellement rencontrées</b> dans l'essai "
-     "d'exemple, plutôt que de faire deviner le codage (§ 2.5). Mapper une de "
-     "ces deux voies sans désigner sa valeur laisserait le critère inactif : "
-     "l'enregistrement le refuse et le dit."],
+     "Elles proposent <b>tous les états catalogués par la table de valeurs du "
+     "fichier</b>, et non les seuls états rencontrés : un essai sans marche "
+     "arrière propose quand même « R » (§ 2.5). L'infobulle distingue ce qui a "
+     "été rencontré de ce qui vient de la table. Mapper une de ces deux voies "
+     "sans désigner sa valeur laisserait le critère inactif : l'enregistrement "
+     "le refuse et le dit."],
     ["<b>Enregistrer</b>",
      "Vérifie les deux voies obligatoires puis réécrit config.yaml.",
      "Seules les lignes de voies et les deux valeurs d'état sont modifiées : "
